@@ -35,13 +35,13 @@ pub trait ExtStatusMessage {
 #[near_bindgen]
 impl CrossContract {
     pub fn deploy_status_message(&self, account_id: String, amount: u64) {
-        Promise::new(account_id)
-            .create_account()
-            .transfer(amount as u128)
-            .add_full_access_key(env::signer_account_pk())
-            .deploy_contract(
-                include_bytes!("../../status-message/res/status_message.wasm").to_vec(),
-            );
+        // Promise::new(account_id)
+        //     .create_account()
+        //     .transfer(amount as u128)
+        //     .add_full_access_key(env::signer_account_pk())
+        //     .deploy_contract(
+        //         include_bytes!("../../status-message/res/status_message.wasm").to_vec(),
+        //     );
     }
 
     pub fn merge_sort(&self, arr: Vec<u8>) -> PromiseOrValue<Vec<u8>> {
