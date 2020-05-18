@@ -1,5 +1,5 @@
 [package]
-name = "link-token"
+name = "oracle-client"
 version = "0.1.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
