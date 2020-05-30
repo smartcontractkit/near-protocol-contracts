@@ -15,7 +15,8 @@ const EXPIRY_TIME: u64 = 5 * 60 * 1000_000_000;
 const MINIMUM_CONSUMER_GAS_LIMIT: u64 = 1000_000_000;
 const SINGLE_CALL_GAS: u64 = 200000000000000;
 
-const LINK_TOKEN_ADDRESS: &str = "v0.link.testnet";
+// TODO: should this be in state instead and part of new()?
+const LINK_TOKEN_ADDRESS: &str = "near-link.you.testnet";
 
 #[derive(Default, BorshDeserialize, BorshSerialize)]
 #[derive(Serialize, Deserialize)]
@@ -166,8 +167,13 @@ impl Oracle {
         } else {
             env::log(b"past existing commitment statement");
             // TODO: don't hardcode this, but get past testing
+            env::log(format!("EXPIRY_TIME: {}", EXPIRY_TIME).as_bytes());
             // let expiration: u64 = env::block_timestamp() + EXPIRY_TIME;
             let expiration: u64 = 1906293427246306700u64;
+            // env::log(format!("aloha payment_u128 {:?}", payment_u128.clone()).as_bytes());
+            // env::log(format!("aloha callback_address {:?}", callback_address.clone()).as_bytes());
+            // env::log(format!("aloha callback_method {:?}", callback_method.clone()).as_bytes());
+            // env::log(format!("aloha expiration {:?}", expiration.clone()).as_bytes());
             let commitment = env::keccak256(format!("{}:{}:{}:{}", payment_u128, callback_address, callback_method, expiration.clone()).as_bytes());
 
             // store entire request as well
@@ -192,15 +198,21 @@ impl Oracle {
 
     /// TODO: this function has not been tested and is in-progress
     /// Note that the request_id here is String instead of Vec<u8> as might be expected from the Solidity contract
-    pub fn fulfill_request(&mut self, request_id: String, payment: U128, callback_address: AccountId, callback_method: String, expiration: u64, data: Vec<u8>) {
+    pub fn fulfill_request(&mut self, request_id: String, payment: U128, callback_address: AccountId, callback_method: String, expiration: U128, data: Vec<u8>) {
         self.only_authorized_node();
         let payment_u128: u128 = payment.into();
+        let expiration_u128: u128 = expiration.into();
 
         // let request_id_string: String = format!("{}:{}", sender, nonce_u128);
         let request_id_bytes = env::keccak256(request_id.as_bytes());
         env::log(format!("Looking to fulfill commitment with key {:?}", request_id_bytes.clone()).as_bytes());
 
-        let params_hash = env::keccak256(format!("{}:{}:{}:{}", payment_u128, callback_address, callback_method, expiration).as_bytes());
+        // env::log(format!("honua payment_u128 {:?}", payment_u128.clone()).as_bytes());
+        // env::log(format!("honua callback_address {:?}", callback_address.clone()).as_bytes());
+        // env::log(format!("honua callback_method {:?}", callback_method.clone()).as_bytes());
+        // env::log(format!("honua expiration {:?}", expiration_u128.clone()).as_bytes());
+
+        let params_hash = env::keccak256(format!("{}:{}:{}:{}", payment_u128, callback_address, callback_method, expiration_u128).as_bytes());
         env::log(format!("params_hash {:?}", params_hash.clone()).as_bytes());
 
         match self.commitments.get(&request_id_bytes) {
@@ -211,7 +223,6 @@ impl Oracle {
             }
         }
 
-        env::panic(b"got here");
         // TODO: this is probably going to be too low at first, adjust
         assert!(env::prepaid_gas() - env::used_gas() > MINIMUM_CONSUMER_GAS_LIMIT, "Must provide consumer enough gas");
 
@@ -243,7 +254,9 @@ impl Oracle {
             promise_post_oracle_payment,
             callback_address,
             callback_method.as_bytes(),
-            &data,
+            json!({
+                "price": data
+            }).to_string().as_bytes(),
             0,
             SINGLE_CALL_GAS
         );
@@ -259,10 +272,21 @@ impl Oracle {
             SINGLE_CALL_GAS * 4 // TODO: futz
         );
 
+        // let promise_post_callback = env::promise_then(
+        //     promise_post_oracle_payment,
+        //     env::current_account_id(),
+        //     b"fulfillment_perform_callback",
+        //     json!({
+        //         "request_id": request_id
+        //     }).to_string().as_bytes(),
+        //     0,
+        //     SINGLE_CALL_GAS * 4 // TODO: futz
+        // );
+
         env::promise_return(promise_post_callback);
     }
 
-    pub fn fulfillment_post_oracle_payment(&mut self, payment: u128) {
+    pub fn fulfillment_post_oracle_payment(&mut self, payment: U128) {
         self.only_owner_predecessor();
         // TODO: fix this "if" workaround until I can figure out how to write tests with promises
         if cfg!(target_arch = "wasm32") {
@@ -270,12 +294,14 @@ impl Oracle {
             // ensure successful promise, meaning tokens are transferred
             match env::promise_result(0) {
                 PromiseResult::Successful(_) => {},
-                PromiseResult::Failed => env::panic(b"The promise failed. See receipt failures."),
+                PromiseResult::Failed => env::panic(b"(fulfillment_post_oracle_payment) The promise failed. See receipt failures."),
                 PromiseResult::NotReady => env::panic(b"The promise was not ready."),
             };
         }
         // Subtract payment from local state
-        self.withdrawable_tokens -= payment;
+        let payment_u128: u128 = payment.into();
+        self.withdrawable_tokens -= payment_u128;
+        // TODO LEFTOFF: we need to add to this after the first request comes in I think
     }
 
     pub fn fulfillment_perform_callback(&mut self, request_id: String) {
@@ -286,12 +312,13 @@ impl Oracle {
             // ensure successful promise, meaning tokens are transferred
             match env::promise_result(0) {
                 PromiseResult::Successful(_) => {},
-                PromiseResult::Failed => env::panic(b"The promise failed. See receipt failures."),
+                PromiseResult::Failed => env::panic(b"(fulfillment_perform_callback) The promise failed. See receipt failures."),
                 PromiseResult::NotReady => env::panic(b"The promise was not ready."),
             };
         }
         // Remove commitment from local state
-        self.commitments.remove(&request_id.into_bytes());
+        self.commitments.remove(&request_id.clone().into_bytes());
+        self.requests.remove(&request_id);
         env::log(b"Commitment that has completed successfully and been removed.")
     }
 
