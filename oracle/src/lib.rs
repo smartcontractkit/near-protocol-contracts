@@ -13,10 +13,8 @@ static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 const EXPIRY_TIME: u64 = 5 * 60 * 1000_000_000;
 
 const MINIMUM_CONSUMER_GAS_LIMIT: u64 = 1000_000_000;
+const ONE_FOR_CONSISTENT_GAS_COST: u128 = 1;
 const SINGLE_CALL_GAS: u64 = 200000000000000;
-
-// TODO: should this be in state instead and part of new()?
-const LINK_TOKEN_ADDRESS: &str = "near-link.you.testnet";
 
 #[derive(Default, BorshDeserialize, BorshSerialize)]
 #[derive(Serialize, Deserialize)]
@@ -33,6 +31,8 @@ pub struct OracleRequest {
 #[near_bindgen]
 #[derive(BorshDeserialize, BorshSerialize)]
 pub struct Oracle {
+    pub owner: AccountId,
+    pub link_account: AccountId,
     pub withdrawable_tokens: u128,
     pub commitments: Map<Vec<u8>, Vec<u8>>,
     // using HashMap instead of Map because Map won't serialize with serde
@@ -59,11 +59,14 @@ impl Default for Oracle {
 impl Oracle {
     /// Initializes the contract with the given total supply owned by the given `owner_id` and `withdrawable_tokens`
     #[init]
-    pub fn new(owner_id: AccountId, withdrawable_tokens: U128) -> Self {
+    pub fn new(link_id: AccountId, owner_id: AccountId) -> Self {
         assert!(env::is_valid_account_id(owner_id.as_bytes()), "Owner's account ID is invalid");
+        assert!(env::is_valid_account_id(link_id.as_bytes()), "Link token account ID is invalid");
         assert!(!env::state_exists(), "Already initialized");
         Self {
-            withdrawable_tokens: withdrawable_tokens.into(),
+            owner: owner_id,
+            link_account: link_id,
+            withdrawable_tokens: ONE_FOR_CONSISTENT_GAS_COST,
             commitments: Map::new(b"commitments".to_vec()),
             requests: HashMap::new(),
             authorized_nodes: Set::new(b"authorized_nodes".to_vec()),
@@ -72,13 +75,12 @@ impl Oracle {
 
     /// This is the entry point that will use the escrow transfer_from.
     /// Afterwards, it essentially calls itself (store_request) which stores the request in state.
-    /// TODO: payment and nonce might not need to be U128
     pub fn request(&mut self, payment: U128, spec_id: Vec<u8>, callback_address: AccountId, callback_method: String, nonce: U128, data_version: U128, data: Vec<u8>) {
         self.check_callback_address(&callback_address);
 
         // first transfer token
         let promise_transfer_tokens = env::promise_create(
-            LINK_TOKEN_ADDRESS.to_string(),
+            self.link_account.clone(),
             b"transfer_from",
             json!({
                 "owner_id": env::predecessor_account_id(),
@@ -112,6 +114,7 @@ impl Oracle {
     }
 
     /// Accounts/contracts should call request, which in turn calls this contract via a promise
+    #[allow(unused_variables)] // for data_version, which is also not used in Solidity as I understand
     pub fn store_request(&mut self, sender: AccountId, payment: U128, spec_id: Vec<u8>, callback_address: AccountId, callback_method: String, nonce: U128, data_version: U128, data: Vec<u8>) {
         // this method should only ever be called from this contract
         // TODO: break this out into helper function
@@ -140,7 +143,7 @@ impl Oracle {
             // User mistakenly gave same request params, refund
             // These calls will panic, so logic will no longer proceed below.
             let promise_transfer_refund = env::promise_create(
-                LINK_TOKEN_ADDRESS.to_string(),
+                self.link_account.clone(),
                 b"transfer",
                 json!({
                 "owner_id": env::current_account_id(),
@@ -228,7 +231,7 @@ impl Oracle {
 
         // pay oracle node the payment
         let promise_pay_oracle_node = env::promise_create(
-            LINK_TOKEN_ADDRESS.to_string(),
+            self.link_account.clone(),
             b"transfer",
             json!({
                 "owner_id": env::current_account_id(),
@@ -393,7 +396,7 @@ impl Oracle {
     }
 
     fn check_callback_address(&mut self, callback_address: &AccountId) {
-        assert!(callback_address != &LINK_TOKEN_ADDRESS, "Cannot callback to LINK.")
+        assert!(callback_address != &self.link_account, "Cannot callback to LINK.")
     }
 
     /// This method is not compile to the smart contract. It is used in tests only.
@@ -421,12 +424,13 @@ mod tests {
     use near_sdk::{MockedBlockchain, StorageUsage};
     use near_sdk::{testing_env, VMContext};
 
+    fn link() -> AccountId { "link_near".to_string() }
     fn alice() -> AccountId { "alice_near".to_string() }
     fn bob() -> AccountId { "bob_near".to_string() }
-    fn million() -> U128 {
-        let million: U128 = 1_000_000.into();
-        million
-    }
+    // fn million() -> U128 {
+    //     let million: U128 = 1_000_000.into();
+    //     million
+    // }
 
     fn get_context(signer_account_id: AccountId, storage_usage: StorageUsage) -> VMContext {
         VMContext {
@@ -499,7 +503,7 @@ mod tests {
     fn make_request() {
         let context = get_context(alice(), 0);
         testing_env!(context);
-        let mut contract = Oracle::new(alice(), million());
+        let mut contract = Oracle::new(link(), alice());
 
         let payment: U128 = 6_u128.into();
         let spec_id = vec![1, 9, 1];
@@ -517,7 +521,7 @@ mod tests {
     fn check_authorization() {
         let context = get_context(alice(), 0);
         testing_env!(context);
-        let mut contract = Oracle::new(alice(), million());
+        let mut contract = Oracle::new(link(), alice());
         let mut authorizations = contract.get_all_authorizations();
         let empty_vec: Vec<AccountId> = Vec::new();
         assert_eq!(empty_vec, authorizations);
@@ -536,7 +540,7 @@ mod tests {
     fn add_request_fulfill() {
         let context = get_context(alice(), 0);
         testing_env!(context);
-        let mut contract = Oracle::new(alice(), million());
+        let mut contract = Oracle::new(link(), alice());
 
         // make request
         let payment: U128 = 6_u128.into();
@@ -555,7 +559,7 @@ mod tests {
 
 
         // fulfill request
-        let hardcoded_expiration = 1906293427246306700u64;
+        let hardcoded_expiration: U128 = 1906293427246306700_u128.into();
         let context = get_context(bob(), env::storage_usage());
         testing_env!(context);
         contract.fulfill_request("alice_near:1".to_string(), payment, callback_address, callback_method, hardcoded_expiration, data);
