@@ -31,7 +31,7 @@ The **oracle node** will be polling the state of its **oracle contract** using `
 
 Build the oracle, oracle-client, and NEAR LINK contracts with:
 
-    ./build.sh
+    ./build_all.sh
     
 Then deploy and instantiate like so…
 
@@ -44,10 +44,8 @@ NEAR LINK
 Oracle contract
 ###
 
-Ensure that in `oracle/src/lib.rs` the value of `LINK_TOKEN_ADDRESS` reflects the previous account where the NEAR LINK contract was just deployed.
-
     near deploy --accountId oracle.you.testnet --wasmFile oracle/res/oracle.wasm
-    near call oracle.you.testnet new '{"owner_id": "oracle.you.testnet", "withdrawable_tokens": "0"}' --accountId oracle.you.testnet
+    near call oracle.you.testnet new '{"link_id": "near-link.you.testnet", "owner_id": "oracle.you.testnet"}' --accountId oracle.you.testnet
     
 Oracle client
 ###
@@ -76,7 +74,7 @@ Give 50 NEAR LINK to oracle-client:
     
 **Oracle client** makes a request to **oracle contract** with payment of 10 NEAR LINK:
 
-    near call oracle.you.testnet request '{"payment": "10", "spec_id": [97, 108, 111, 104, 97, 32, 104, 111, 110, 117, 97], "callback_address": "oracle-client.you.testnet", "callback_method": "token_price_callback", "nonce": "1", "data_version": "1", "data": [66, 65, 84]}' --accountId oracle-client.you.testnet --gas 10000000000000000
+    near call oracle.you.testnet request '{"payment": "10", "spec_id": "dW5pcXVlIHNwZWMgaWQ=", "callback_address": "oracle-client.you.testnet", "callback_method": "token_price_callback", "nonce": "1", "data_version": "1", "data": "QkFU"}' --accountId oracle-client.you.testnet --gas 10000000000000000
     
 Before the **oracle node** can fulfill the request, they must be authorized.
 
@@ -90,11 +88,11 @@ Oracle node is polling the state of **oracle contract** to see the request(s):
 
     near view oracle.you.testnet get_all_requests
     
-It sees the `data` is `[66, 65, 84]` which is ASCII for `BAT`, the token to look up. The **oracle node** presumably makes a call to an exchange to gather the price of Basic Attention Token (BAT) and finds it is at $0.19 per token.
-The data `0.19` as a Vec<u8> is `[48, 46, 49, 57]`
+It sees the `data` is `QkFU` which is the Base64-encoded string for `BAT`, the token to look up. The **oracle node** presumably makes a call to an exchange to gather the price of Basic Attention Token (BAT) and finds it is at $0.19 per token.
+The data `0.19` as a Vec<u8> is `MTkuMQ==`
 **Oracle node** uses its NEAR account keys to fulfill the request:
 
-    near call oracle.you.testnet fulfill_request '{"request_id": "oracle-client.you.testnet:1", "payment": "10", "callback_address": "oracle-client.you.testnet", "callback_method": "token_price_callback", "expiration": "1906293427246306700", "data": [48, 46, 49, 57]}' --accountId oracle-node.you.testnet --gas 10000000000000000
+    near call oracle.you.testnet fulfill_request '{"request_id": "oracle-client.you.testnet:1", "payment": "10", "callback_address": "oracle-client.you.testnet", "callback_method": "token_price_callback", "expiration": "1906293427246306700", "data": "MTkuMQ=="}' --accountId oracle-node.you.testnet --gas 10000000000000000
     
 (Optional) Check the balance of **oracle client**:
 
@@ -104,12 +102,6 @@ Expect `40`
     
 (Optional) Check the allowance of **oracle contract**:
 
-    near view near-link.you.testnet get_balance '{"owner_id": "oracle-client.you.testnet"}'
+    near view near-link.you.testnet get_allowance '{"owner_id": "oracle-client.you.testnet", "escrow_account_id": "oracle.you.testnet"}'
     
 Expect `10`
-
-(Optional) Check the withdrawable tokens from **oracle contract**:
-
-    near view oracle.you.testnet get_withdrawable_tokens
-    
-Expect `10` TODO: Fix oracle withdrawable tokens
