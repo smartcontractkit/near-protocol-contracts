@@ -16,14 +16,16 @@ const MINIMUM_CONSUMER_GAS_LIMIT: u64 = 1000_000_000;
 const ONE_FOR_CONSISTENT_GAS_COST: u128 = 1;
 const SINGLE_CALL_GAS: u64 = 200000000000000;
 
+pub type Base64String = String;
+
 #[derive(Default, BorshDeserialize, BorshSerialize)]
 #[derive(Serialize, Deserialize)]
 pub struct OracleRequest {
     caller_account: AccountId,
-    request_spec: Vec<u8>,
+    request_spec: Base64String,
     callback_address: AccountId,
     callback_method: String,
-    data: Vec<u8>,
+    data: Base64String,
     payment: u128,
     expiration: u64
 }
@@ -75,7 +77,7 @@ impl Oracle {
 
     /// This is the entry point that will use the escrow transfer_from.
     /// Afterwards, it essentially calls itself (store_request) which stores the request in state.
-    pub fn request(&mut self, payment: U128, spec_id: Vec<u8>, callback_address: AccountId, callback_method: String, nonce: U128, data_version: U128, data: Vec<u8>) {
+    pub fn request(&mut self, payment: U128, spec_id: Base64String, callback_address: AccountId, callback_method: String, nonce: U128, data_version: U128, data: Base64String) {
         self.check_callback_address(&callback_address);
 
         // first transfer token
@@ -115,7 +117,7 @@ impl Oracle {
 
     /// Accounts/contracts should call request, which in turn calls this contract via a promise
     #[allow(unused_variables)] // for data_version, which is also not used in Solidity as I understand
-    pub fn store_request(&mut self, sender: AccountId, payment: U128, spec_id: Vec<u8>, callback_address: AccountId, callback_method: String, nonce: U128, data_version: U128, data: Vec<u8>) {
+    pub fn store_request(&mut self, sender: AccountId, payment: U128, spec_id: Base64String, callback_address: AccountId, callback_method: String, nonce: U128, data_version: U128, data: Base64String) {
         // this method should only ever be called from this contract
         // TODO: break this out into helper function
         self.only_owner_predecessor();
@@ -201,7 +203,7 @@ impl Oracle {
 
     /// TODO: this function has not been tested and is in-progress
     /// Note that the request_id here is String instead of Vec<u8> as might be expected from the Solidity contract
-    pub fn fulfill_request(&mut self, request_id: String, payment: U128, callback_address: AccountId, callback_method: String, expiration: U128, data: Vec<u8>) {
+    pub fn fulfill_request(&mut self, request_id: String, payment: U128, callback_address: AccountId, callback_method: String, expiration: U128, data: Base64String) {
         self.only_authorized_node();
         let payment_u128: u128 = payment.into();
         let expiration_u128: u128 = expiration.into();
@@ -274,17 +276,6 @@ impl Oracle {
             0,
             SINGLE_CALL_GAS * 4 // TODO: futz
         );
-
-        // let promise_post_callback = env::promise_then(
-        //     promise_post_oracle_payment,
-        //     env::current_account_id(),
-        //     b"fulfillment_perform_callback",
-        //     json!({
-        //         "request_id": request_id
-        //     }).to_string().as_bytes(),
-        //     0,
-        //     SINGLE_CALL_GAS * 4 // TODO: futz
-        // );
 
         env::promise_return(promise_post_callback);
     }
@@ -423,14 +414,11 @@ mod tests {
     use super::*;
     use near_sdk::{MockedBlockchain, StorageUsage};
     use near_sdk::{testing_env, VMContext};
+    use base64::{encode, decode};
 
     fn link() -> AccountId { "link_near".to_string() }
     fn alice() -> AccountId { "alice_near".to_string() }
     fn bob() -> AccountId { "bob_near".to_string() }
-    // fn million() -> U128 {
-    //     let million: U128 = 1_000_000.into();
-    //     million
-    // }
 
     fn get_context(signer_account_id: AccountId, storage_usage: StorageUsage) -> VMContext {
         VMContext {
@@ -453,65 +441,39 @@ mod tests {
         }
     }
 
-    /*
     #[test]
     fn make_request_validate_commitment() {
         let context = get_context(alice(), 0);
         testing_env!(context);
-        let mut contract = Oracle::new(alice(), million());
-
+        let mut contract = Oracle::new(link(), alice(), );
         let sender = alice();
         let payment_json: U128 = 51319_u128.into();
-        let spec_id = vec![1, 9, 1];
+        let spec_id = encode("unique spec id".to_string());
         let nonce = 1_u128;
         let nonce_json: U128 = 1_u128.into();
         let data_version_json: U128 = 131_u128.into();
-        let data: Vec<u8> = vec![4, 6, 4, 2, 8, 2];
+        let data = encode("BAT".to_string());
         contract.store_request( alice(), payment_json, spec_id, "callback.sender.testnet".to_string(), "my_callback_fn".to_string(), nonce_json, data_version_json, data);
 
         // second validate the serialized requests
         let serialized_output = contract.get_all_requests();
-        let u: OracleRequest = serde_json::from_str(serialized_output.as_str()).unwrap();
-
-        // let json_output = serde_json::from_str(serialized_output.as_str());
-        // let actual = json_output.unwrap();
-        // match serde_json::from_str(serialized_output.as_str()) {
-        //     Ok(json) => {
-        //         println!("yay");
-        //     },
-        //     Err(e) => {
-        //         println!("Error turning request into JSON: {}", e);
-        //     }
-        // }
-
-        // let expected_result = "{\"alice_near:1\":{\"caller_account\":\"alice_near\",\"request_spec\":[1,9,1],\"callback_address\":\"callback.sender.testnet\",\"callback_method\":\"my_callback_fn\",\"data\":[4,6,4,2,8,2],\"payment\":51319}}";
-        // assert_eq!(expected_result, serialized_output);
-        // // first validate the commitment is what we expect
-        // let request_id = env::keccak256(format!("{}:{}", sender, nonce).as_bytes());
-        //
-        // assert_eq!(1, contract.commitments.len(), "Didn't seem to add the request properly.");
-        //
-        // let commitment_val = match contract.commitments.get(&request_id) {
-        //     Some(v) => v,
-        //     None => Vec::new()
-        // };
-        // assert_eq!(vec![196, 143, 50, 195, 145, 131, 130, 121, 214, 15, 31, 43, 180, 227, 159, 56, 173, 32, 244, 231, 106, 251, 78, 93, 84, 24, 213, 92, 81, 229, 217, 80], commitment_val);
+        let expected_result = "{\"alice_near:1\":{\"caller_account\":\"alice_near\",\"request_spec\":\"dW5pcXVlIHNwZWMgaWQ=\",\"callback_address\":\"callback.sender.testnet\",\"callback_method\":\"my_callback_fn\",\"data\":\"QkFU\",\"payment\":51319,\"expiration\":1906293427246306700}}";
+        assert_eq!(expected_result, serialized_output);
     }
-    */
 
     #[test]
     fn make_request() {
         let context = get_context(alice(), 0);
         testing_env!(context);
         let mut contract = Oracle::new(link(), alice());
-
         let payment: U128 = 6_u128.into();
-        let spec_id = vec![1, 9, 1];
+        let spec_id = encode("unique spec id".to_string());
         let callback_address = "callback.testnet".to_string();
         let callback_method = "test_callback".to_string();
         let nonce: U128 = 1_u128.into();
         let data_version: U128 = 131_u128.into();
-        let data: Vec<u8> = vec![4, 6, 4, 2, 8, 2];
+        let data = encode("BAT".to_string());
+        // let data: Vec<u8> = vec![4, 6, 4, 2, 8, 2];
 
         contract.request(payment, spec_id, callback_address, callback_method, nonce, data_version, data);
         // TODO: figure out why promise isn't going through
@@ -544,19 +506,18 @@ mod tests {
 
         // make request
         let payment: U128 = 6_u128.into();
-        let spec_id = vec![1, 9, 1];
+        let spec_id = encode("unique spec id".to_string());
         let callback_address = env::current_account_id();
         let callback_method = "test_callback".to_string();
         let nonce: U128 = 1_u128.into();
         let data_version: U128 = 131_u128.into();
-        let data: Vec<u8> = vec![4, 6, 4, 2, 8, 2];
+        let data = encode("BAT".to_string());
 
         // contract.request(payment.clone(), spec_id, callback_address.clone(), callback_method.clone(), nonce.clone(), data_version, data.clone());
         contract.store_request( alice(), payment, spec_id, callback_address.clone(), callback_method.clone(), nonce.clone(), data_version, data.clone());
         println!("{}", contract.get_all_requests());
         // authorize bob
         contract.add_authorization(bob());
-
 
         // fulfill request
         let hardcoded_expiration: U128 = 1906293427246306700_u128.into();
@@ -565,3 +526,6 @@ mod tests {
         contract.fulfill_request("alice_near:1".to_string(), payment, callback_address, callback_method, hardcoded_expiration, data);
     }
 }
+
+// TODO: fix errors here: https://explorer.testnet.near.org/transactions/4tQhZ3hHM1PZ7eqwXFupojkKNaB6ko5vM6JyUF18Mftd
+// TODO: make sure it's actually deleting everything once fulfilled
