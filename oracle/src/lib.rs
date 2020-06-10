@@ -255,6 +255,7 @@ impl Oracle {
             SINGLE_CALL_GAS
         );
 
+        // TODO: seems as though the process isn't halted here, move these to callbacks
         let promise_perform_callback = env::promise_then(
             promise_post_oracle_payment,
             callback_address,
@@ -311,8 +312,9 @@ impl Oracle {
             };
         }
         // Remove commitment from local state
-        self.commitments.remove(&request_id.clone().into_bytes());
         self.requests.remove(&request_id);
+        let request_id_bytes = env::keccak256(request_id.clone().as_bytes());
+        self.commitments.remove(&request_id_bytes.clone());
         env::log(b"Commitment that has completed successfully and been removed.")
     }
 
@@ -345,6 +347,11 @@ impl Oracle {
         env::log(b"Returning all requests");
         let serialized = serde_json::to_string(&self.requests).unwrap();
         return serialized;
+    }
+
+    pub fn get_all_commitments(&self) -> Vec<(Vec<u8>, Vec<u8>)> {
+        env::log(b"Returning all commitments");
+        self.commitments.to_vec()
     }
 
     pub fn get_withdrawable_tokens(&self) -> u128 {
