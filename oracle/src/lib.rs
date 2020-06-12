@@ -1,7 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Serialize, Deserialize};
-use near_sdk::collections::{Map, Set};
-use near_sdk::json_types::U128; // eventually we may use this for expiration
+use near_sdk::collections::{TreeMap, UnorderedSet, UnorderedMap};
+use near_sdk::json_types::U128;
 use near_sdk::{AccountId, env, near_bindgen, PromiseResult};
 use std::collections::HashMap;
 use serde_json::json;
@@ -18,7 +18,7 @@ const SINGLE_CALL_GAS: u64 = 200000000000000;
 
 pub type Base64String = String;
 
-#[derive(Default, BorshDeserialize, BorshSerialize)]
+#[derive(Default, BorshDeserialize, BorshSerialize, Debug)]
 #[derive(Serialize, Deserialize)]
 pub struct OracleRequest {
     caller_account: AccountId,
@@ -30,13 +30,31 @@ pub struct OracleRequest {
     expiration: u64
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct SummaryJSON {
+    account: AccountId,
+    total_requests: u16,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct RequestsJSON {
+    nonce: U128,
+    request: OracleRequest,
+}
+
+// TODO: probably remove this and combine it with Oracle's requests
+#[derive(Default, BorshDeserialize, BorshSerialize)]
+pub struct OracleNonceRequest {
+    pub nonce_to_request: TreeMap<u128, OracleRequest>,
+}
+
 #[near_bindgen]
 #[derive(BorshDeserialize, BorshSerialize)]
 pub struct Oracle {
     pub owner: AccountId,
     pub link_account: AccountId,
     pub withdrawable_tokens: u128,
-    pub commitments: Map<Vec<u8>, Vec<u8>>,
+    pub commitments: UnorderedMap<Vec<u8>, Vec<u8>>,
     // using HashMap instead of Map because Map won't serialize with serde
     // TODO: don't use HashMap
     /*
@@ -47,8 +65,8 @@ pub struct Oracle {
         Pagination implementation:
         https://github.com/near-examples/token-factory/blob/master/contracts/factory/src/lib.rs#L51
     */
-    pub requests: HashMap<String, OracleRequest>,
-    pub authorized_nodes: Set<AccountId>,
+    pub requests: TreeMap<AccountId, OracleNonceRequest>,
+    pub authorized_nodes: UnorderedSet<AccountId>,
 }
 
 impl Default for Oracle {
@@ -69,16 +87,16 @@ impl Oracle {
             owner: owner_id,
             link_account: link_id,
             withdrawable_tokens: ONE_FOR_CONSISTENT_GAS_COST,
-            commitments: Map::new(b"commitments".to_vec()),
-            requests: HashMap::new(),
-            authorized_nodes: Set::new(b"authorized_nodes".to_vec()),
+            commitments: UnorderedMap::new(b"commitments".to_vec()),
+            requests: TreeMap::new(b"requests".to_vec()),
+            authorized_nodes: UnorderedSet::new(b"authorized_nodes".to_vec()),
         }
     }
 
     /// This is the entry point that will use the escrow transfer_from.
     /// Afterwards, it essentially calls itself (store_request) which stores the request in state.
     pub fn request(&mut self, payment: U128, spec_id: Base64String, callback_address: AccountId, callback_method: String, nonce: U128, data_version: U128, data: Base64String) {
-        self.check_callback_address(&callback_address);
+        self._check_callback_address(&callback_address);
 
         // first transfer token
         let promise_transfer_tokens = env::promise_create(
@@ -120,7 +138,7 @@ impl Oracle {
     pub fn store_request(&mut self, sender: AccountId, payment: U128, spec_id: Base64String, callback_address: AccountId, callback_method: String, nonce: U128, data_version: U128, data: Base64String) {
         // this method should only ever be called from this contract
         // TODO: break this out into helper function
-        self.only_owner_predecessor();
+        self._only_owner_predecessor();
         // TODO: fix this "if" workaround until I can figure out how to write tests with promises
         if cfg!(target_arch = "wasm32") {
             assert_eq!(env::promise_results_count(), 1);
@@ -175,16 +193,12 @@ impl Oracle {
             env::log(format!("EXPIRY_TIME: {}", EXPIRY_TIME).as_bytes());
             // let expiration: u64 = env::block_timestamp() + EXPIRY_TIME;
             let expiration: u64 = 1906293427246306700u64;
-            // env::log(format!("aloha payment_u128 {:?}", payment_u128.clone()).as_bytes());
-            // env::log(format!("aloha callback_address {:?}", callback_address.clone()).as_bytes());
-            // env::log(format!("aloha callback_method {:?}", callback_method.clone()).as_bytes());
-            // env::log(format!("aloha expiration {:?}", expiration.clone()).as_bytes());
             let commitment = env::keccak256(format!("{}:{}:{}:{}", payment_u128, callback_address, callback_method, expiration.clone()).as_bytes());
 
             // store entire request as well
             // TODO: with websockets/subscriptions we can considering using logging instead of state
             let oracle_request = OracleRequest {
-                caller_account: sender,
+                caller_account: sender.clone(),
                 request_spec: spec_id,
                 callback_address,
                 callback_method,
@@ -194,28 +208,31 @@ impl Oracle {
             };
 
             // Insert request and commitment into state.
-            self.requests.insert(request_id_string.clone(), oracle_request);
-            env::log(format!("Inserting commitment with key {:?}", request_id_bytes.clone()).as_bytes());
-            env::log(format!("Inserting commitment with value {:?}", commitment.clone()).as_bytes());
+            /*
+              account =>
+                nonce => { Request }
+            */
+            let mut nonce_request = self.requests.get(&sender).unwrap_or_default();
+            nonce_request.nonce_to_request.insert(&nonce_u128, &oracle_request);
+            self.requests.insert(&sender.clone(), &nonce_request);
+
+            // env::log(format!("Inserting commitment with key {:?}", request_id_bytes.clone()).as_bytes());
+            // env::log(format!("Inserting commitment with value {:?}", commitment.clone()).as_bytes());
             self.commitments.insert(&request_id_bytes, &commitment);
         }
     }
 
     /// TODO: this function has not been tested and is in-progress
     /// Note that the request_id here is String instead of Vec<u8> as might be expected from the Solidity contract
-    pub fn fulfill_request(&mut self, request_id: String, payment: U128, callback_address: AccountId, callback_method: String, expiration: U128, data: Base64String) {
-        self.only_authorized_node();
+    pub fn fulfill_request(&mut self, account: AccountId, nonce: U128, payment: U128, callback_address: AccountId, callback_method: String, expiration: U128, data: Base64String) {
+        self._only_authorized_node();
         let payment_u128: u128 = payment.into();
+        let nonce_u128: u128 = nonce.into();
         let expiration_u128: u128 = expiration.into();
 
-        // let request_id_string: String = format!("{}:{}", sender, nonce_u128);
+        let request_id: String = format!("{}:{}", account, nonce_u128);
         let request_id_bytes = env::keccak256(request_id.as_bytes());
         env::log(format!("Looking to fulfill commitment with key {:?}", request_id_bytes.clone()).as_bytes());
-
-        // env::log(format!("honua payment_u128 {:?}", payment_u128.clone()).as_bytes());
-        // env::log(format!("honua callback_address {:?}", callback_address.clone()).as_bytes());
-        // env::log(format!("honua callback_method {:?}", callback_method.clone()).as_bytes());
-        // env::log(format!("honua expiration {:?}", expiration_u128.clone()).as_bytes());
 
         let params_hash = env::keccak256(format!("{}:{}:{}:{}", payment_u128, callback_address, callback_method, expiration_u128).as_bytes());
         env::log(format!("params_hash {:?}", params_hash.clone()).as_bytes());
@@ -272,7 +289,8 @@ impl Oracle {
             env::current_account_id(),
             b"fulfillment_perform_callback",
             json!({
-                "request_id": request_id
+                "account": account,
+                "nonce": nonce
             }).to_string().as_bytes(),
             0,
             SINGLE_CALL_GAS * 4 // TODO: futz
@@ -282,7 +300,7 @@ impl Oracle {
     }
 
     pub fn fulfillment_post_oracle_payment(&mut self, payment: U128) {
-        self.only_owner_predecessor();
+        self._only_owner_predecessor();
         // TODO: fix this "if" workaround until I can figure out how to write tests with promises
         if cfg!(target_arch = "wasm32") {
             assert_eq!(env::promise_results_count(), 1);
@@ -299,8 +317,8 @@ impl Oracle {
         // TODO LEFTOFF: we need to add to this after the first request comes in I think
     }
 
-    pub fn fulfillment_perform_callback(&mut self, request_id: String) {
-        self.only_owner_predecessor();
+    pub fn fulfillment_perform_callback(&mut self, account: AccountId, nonce: U128) {
+        self._only_owner_predecessor();
         // TODO: fix this "if" workaround until I can figure out how to write tests with promises
         if cfg!(target_arch = "wasm32") {
             assert_eq!(env::promise_results_count(), 1);
@@ -312,8 +330,13 @@ impl Oracle {
             };
         }
         // Remove commitment from local state
-        self.requests.remove(&request_id);
-        let request_id_bytes = env::keccak256(request_id.clone().as_bytes());
+        // let mut nonce_request = self.requests.get(&sender).unwrap();
+        // nonce_request.nonce_to_request.insert(&nonce_u128, &oracle_request);
+        let nonce_u128: u128 = nonce.into();
+        let request_id: String = format!("{}:{}", account, nonce_u128);
+
+        self.requests.remove(&account);
+        let request_id_bytes = env::keccak256(request_id.as_bytes());
         self.commitments.remove(&request_id_bytes.clone());
         env::log(b"Commitment that has completed successfully and been removed.")
     }
@@ -323,30 +346,93 @@ impl Oracle {
     }
 
     pub fn add_authorization(&mut self, node: AccountId) {
-        self.only_owner();
+        self._only_owner();
         assert!(env::is_valid_account_id(node.as_bytes()), "Account ID is invalid");
         self.authorized_nodes.insert(&node);
     }
 
     pub fn remove_authorization(&mut self, node: AccountId) {
-        self.only_owner();
+        self._only_owner();
 
         self.authorized_nodes.remove(&node);
     }
 
     pub fn withdraw(&mut self, _recipient: AccountId, amount: u128) {
-        self.only_owner();
-        self.has_available_funds(amount);
+        self._only_owner();
+        self._has_available_funds(amount);
         
         self.withdrawable_tokens -= amount;
         // TODO: Transfer LINK. Does this method make sense in NEAR?
     }
 
-    // TODO: this will use pagination as stated at the beginning of this file
-    pub fn get_all_requests(&self) -> String {
-        env::log(b"Returning all requests");
-        let serialized = serde_json::to_string(&self.requests).unwrap();
-        return serialized;
+    /// Get up to first 65K accounts that have their own associated nonces => requests
+    pub fn get_requests_summary(&self, max_num_accounts: u64) -> String {
+        let mut counter: u64 = 0;
+        let mut result: Vec<SummaryJSON> = Vec::with_capacity(max_num_accounts as usize);
+
+        for req in self.requests.iter() {
+            self._request_summary_iterate(&max_num_accounts, req, &mut result, &mut counter);
+        }
+
+        serde_json::to_string(&result).unwrap()
+    }
+
+    pub fn get_requests_summary_from(&self, from_account: AccountId, max_num_accounts: u64) -> String {
+        let mut counter: u64 = 0;
+        let mut result: Vec<SummaryJSON> = Vec::with_capacity(max_num_accounts as usize);
+
+        for req in self.requests.iter_from(from_account) {
+            self._request_summary_iterate(&max_num_accounts, req, &mut result, &mut counter);
+        }
+
+        serde_json::to_string(&result).unwrap()
+    }
+
+    /// Helper function while iterating through request summaries
+    fn _request_summary_iterate(&self, max_num_accounts: &u64, req: (AccountId, OracleNonceRequest), result: &mut Vec<SummaryJSON>, counter: &mut u64) {
+        if *counter == *max_num_accounts || *counter > self.requests.len() {
+            return
+        }
+        let account = req.0;
+        let total_requests = req.1.nonce_to_request.len() as u16;
+        println!("aloha {} {}", account, total_requests);
+        result.push(SummaryJSON {
+            account,
+            total_requests
+        });
+
+        *counter += 1;
+    }
+
+    pub fn get_requests(&self, account: AccountId, max_requests: u64) -> String {
+        if !self.requests.contains_key(&account) {
+            env::panic(format!("Account {} has no requests.", account).as_bytes());
+        }
+        let mut counter: u64 = 0;
+        let mut result: Vec<RequestsJSON> = Vec::with_capacity(max_requests as usize);
+        let account_requests_map = self.requests.get(&account).unwrap().nonce_to_request;
+
+        for req in account_requests_map.iter() {
+            self._request_iterate(&max_requests, req, &mut result, &mut counter);
+        }
+
+        serde_json::to_string(&result).unwrap()
+    }
+
+    /// Helper function while iterating through account requests
+    fn _request_iterate(&self, max_requests: &u64, req: (u128, OracleRequest), result: &mut Vec<RequestsJSON>, counter: &mut u64) {
+        if *counter == *max_requests || *counter > self.requests.len() {
+            return
+        }
+        let nonce = req.0;
+        let oracle_request = req.1;
+        println!("aloha {} {:?}", nonce, oracle_request);
+        result.push(RequestsJSON {
+            nonce: U128(nonce),
+            request: oracle_request,
+        });
+
+        *counter += 1;
     }
 
     pub fn get_all_commitments(&self) -> Vec<(Vec<u8>, Vec<u8>)> {
@@ -359,7 +445,7 @@ impl Oracle {
     }
 
     pub fn reset(&mut self) {
-        self.only_owner();
+        self._only_owner();
         self.commitments.clear();
         self.requests.clear();
         env::log(b"Commitments and requests are cleared.");
@@ -367,16 +453,16 @@ impl Oracle {
 
     /// Can be called after a cross-contract call before enforcing a panic
     pub fn panic(&mut self, error_message: String) {
-        self.only_owner_predecessor();
+        self._only_owner_predecessor();
         env::panic(error_message.as_bytes());
     }
 
     // TODO: organize into impl for private functions
-    fn has_available_funds(&mut self, amount: u128) {
+    fn _has_available_funds(&mut self, amount: u128) {
         assert!(self.withdrawable_tokens >= amount, "Amount requested is greater than withdrawable balance.");
     }
 
-    fn only_owner(&mut self) {
+    fn _only_owner(&mut self) {
         assert_eq!(env::signer_account_id(), env::current_account_id(), "Only contract owner can call this method.");
     }
 
@@ -384,16 +470,16 @@ impl Oracle {
     /// The predecessor will be this account calling itself after transferring
     /// fungible tokens. Used for functions called via promises where we
     /// do not want end user accounts calling them directly.
-    fn only_owner_predecessor(&mut self) {
+    fn _only_owner_predecessor(&mut self) {
         assert_eq!(env::predecessor_account_id(), env::current_account_id(), "Only contract owner can sign transactions for this method.");
     }
 
-    fn only_authorized_node(&mut self) {
+    fn _only_authorized_node(&mut self) {
         assert!(self.authorized_nodes.contains(&env::signer_account_id()) || env::signer_account_id() == env::current_account_id(),
             "Not an authorized node to fulfill requests.");
     }
 
-    fn check_callback_address(&mut self, callback_address: &AccountId) {
+    fn _check_callback_address(&mut self, callback_address: &AccountId) {
         assert!(callback_address != &self.link_account, "Cannot callback to LINK.")
     }
 
@@ -463,8 +549,9 @@ mod tests {
         contract.store_request( alice(), payment_json, spec_id, "callback.sender.testnet".to_string(), "my_callback_fn".to_string(), nonce_json, data_version_json, data);
 
         // second validate the serialized requests
-        let serialized_output = contract.get_all_requests();
-        let expected_result = "{\"alice_near:1\":{\"caller_account\":\"alice_near\",\"request_spec\":\"dW5pcXVlIHNwZWMgaWQ=\",\"callback_address\":\"callback.sender.testnet\",\"callback_method\":\"my_callback_fn\",\"data\":\"QkFU\",\"payment\":51319,\"expiration\":1906293427246306700}}";
+        // let serialized_output = contract.get_requests_summary(1);
+        let serialized_output = contract.get_requests(alice(), 1);
+        let expected_result = "[{\"nonce\":\"1\",\"request\":{\"caller_account\":\"alice_near\",\"request_spec\":\"dW5pcXVlIHNwZWMgaWQ=\",\"callback_address\":\"callback.sender.testnet\",\"callback_method\":\"my_callback_fn\",\"data\":\"QkFU\",\"payment\":51319,\"expiration\":1906293427246306700}}]";
         assert_eq!(expected_result, serialized_output);
     }
 
@@ -480,7 +567,6 @@ mod tests {
         let nonce: U128 = 1_u128.into();
         let data_version: U128 = 131_u128.into();
         let data = encode("BAT".to_string());
-        // let data: Vec<u8> = vec![4, 6, 4, 2, 8, 2];
 
         contract.request(payment, spec_id, callback_address, callback_method, nonce, data_version, data);
         // TODO: figure out why promise isn't going through
@@ -506,6 +592,36 @@ mod tests {
     }
 
     #[test]
+    fn multiple_requests_to_json() {
+        // Context: Alice
+        let mut context = get_context(alice(), 0);
+        testing_env!(context);
+        // Set up contract
+        let mut contract = Oracle::new(link(), alice());
+        // Alice stores two requests
+        contract.store_request( alice(), 6_u128.into(), "unique-id".to_string(), "callback.testnet".to_string(), "test_callback".to_string(), 1_u128.into(), 131_u128.into(), "BAT".to_string());
+        contract.store_request( alice(), 6_u128.into(), "unique-id".to_string(), "callback.testnet".to_string(), "test_callback".to_string(), 2_u128.into(), 131_u128.into(), "NEAR".to_string());
+        // Context: Bob
+        context = get_context(bob(), env::storage_usage());
+        testing_env!(context);
+        contract.store_request( bob(), 6_u128.into(), "unique-id".to_string(), "callback.testnet".to_string(), "test_callback".to_string(), 1_u128.into(), 131_u128.into(), "BAT".to_string());
+        // Context: Link
+        context = get_context(link(), env::storage_usage());
+        testing_env!(context);
+        contract.store_request( link(), 6_u128.into(), "unique-id".to_string(), "callback.testnet".to_string(), "test_callback".to_string(), 1_u128.into(), 131_u128.into(), "BAT".to_string());
+
+        let max_num_accounts = 2u64;
+        let json_result = contract.get_requests_summary(max_num_accounts);
+        let expected_result = "[{\"account\":\"alice_near\",\"total_requests\":2},{\"account\":\"bob_near\",\"total_requests\":1}]";
+        assert_eq!(json_result, expected_result);
+
+        // now start after "alice_near"
+        let json_result = contract.get_requests_summary_from(alice(), max_num_accounts);
+        let expected_result = "[{\"account\":\"bob_near\",\"total_requests\":1},{\"account\":\"link_near\",\"total_requests\":1}]";
+        assert_eq!(json_result, expected_result);
+    }
+
+    #[test]
     fn add_request_fulfill() {
         let context = get_context(alice(), 0);
         testing_env!(context);
@@ -522,7 +638,7 @@ mod tests {
 
         // contract.request(payment.clone(), spec_id, callback_address.clone(), callback_method.clone(), nonce.clone(), data_version, data.clone());
         contract.store_request( alice(), payment, spec_id, callback_address.clone(), callback_method.clone(), nonce.clone(), data_version, data.clone());
-        println!("{}", contract.get_all_requests());
+        println!("{}", contract.get_requests_summary(1));
         // authorize bob
         contract.add_authorization(bob());
 
@@ -530,7 +646,7 @@ mod tests {
         let hardcoded_expiration: U128 = 1906293427246306700_u128.into();
         let context = get_context(bob(), env::storage_usage());
         testing_env!(context);
-        contract.fulfill_request("alice_near:1".to_string(), payment, callback_address, callback_method, hardcoded_expiration, data);
+        contract.fulfill_request(alice(), 1.into(), payment, callback_address, callback_method, hardcoded_expiration, data);
     }
 }
 
