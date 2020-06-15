@@ -42,12 +42,6 @@ pub struct RequestsJSON {
     request: OracleRequest,
 }
 
-// TODO: probably remove this and combine it with Oracle's requests
-#[derive(Default, BorshDeserialize, BorshSerialize)]
-pub struct OracleNonceRequest {
-    pub nonce_to_request: TreeMap<u128, OracleRequest>,
-}
-
 #[near_bindgen]
 #[derive(BorshDeserialize, BorshSerialize)]
 pub struct Oracle {
@@ -65,7 +59,7 @@ pub struct Oracle {
         Pagination implementation:
         https://github.com/near-examples/token-factory/blob/master/contracts/factory/src/lib.rs#L51
     */
-    pub requests: TreeMap<AccountId, OracleNonceRequest>,
+    pub requests: TreeMap<AccountId, TreeMap<u128, OracleRequest>>,
     pub authorized_nodes: UnorderedSet<AccountId>,
 }
 
@@ -213,7 +207,7 @@ impl Oracle {
                 nonce => { Request }
             */
             let mut nonce_request = self.requests.get(&sender).unwrap_or_default();
-            nonce_request.nonce_to_request.insert(&nonce_u128, &oracle_request);
+            nonce_request.insert(&nonce_u128, &oracle_request);
             self.requests.insert(&sender.clone(), &nonce_request);
 
             // env::log(format!("Inserting commitment with key {:?}", request_id_bytes.clone()).as_bytes());
@@ -389,12 +383,12 @@ impl Oracle {
     }
 
     /// Helper function while iterating through request summaries
-    fn _request_summary_iterate(&self, max_num_accounts: &u64, req: (AccountId, OracleNonceRequest), result: &mut Vec<SummaryJSON>, counter: &mut u64) {
+    fn _request_summary_iterate(&self, max_num_accounts: &u64, req: (AccountId, TreeMap<u128, OracleRequest>), result: &mut Vec<SummaryJSON>, counter: &mut u64) {
         if *counter == *max_num_accounts || *counter > self.requests.len() {
             return
         }
         let account = req.0;
-        let total_requests = req.1.nonce_to_request.len() as u16;
+        let total_requests = req.1.len() as u16;
         println!("aloha {} {}", account, total_requests);
         result.push(SummaryJSON {
             account,
@@ -410,7 +404,7 @@ impl Oracle {
         }
         let mut counter: u64 = 0;
         let mut result: Vec<RequestsJSON> = Vec::with_capacity(max_requests as usize);
-        let account_requests_map = self.requests.get(&account).unwrap().nonce_to_request;
+        let account_requests_map = self.requests.get(&account).unwrap();
 
         for req in account_requests_map.iter() {
             self._request_iterate(&max_requests, req, &mut result, &mut counter);
