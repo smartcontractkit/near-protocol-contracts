@@ -17,17 +17,21 @@ Notes:
 - data should be straight JSON instead of JSON-like CBOR
 
 ## Set up ability to run on testnet
+Set an environment variable to use in these examples. For instance, if your test account is `oracle.testnet` set it like so:
+
+    export NEAR_ACCT=oracle.testnet
+
 Create a NEAR testnet account with [Wallet](https://wallet.testnet.near.org).
 Create a subaccounts in this fashion:
 
-    near create_account oracle.you.testnet --masterAccount you.testnet
-    near create_account oracle-client.you.testnet --masterAccount you.testnet
-    near create_account oracle-node.you.testnet --masterAccount you.testnet
-    near create_account near-link.you.testnet --masterAccount you.testnet
+    near create_account oracle.$NEAR_ACCT --masterAccount $NEAR_ACCT
+    near create_account oracle-client.$NEAR_ACCT --masterAccount $NEAR_ACCT
+    near create_account oracle-node.$NEAR_ACCT --masterAccount $NEAR_ACCT
+    near create_account near-link.$NEAR_ACCT --masterAccount $NEAR_ACCT
 
 **Oracle client** will call the **oracle contract** to make a request for external data.
 **Oracle client** has given the **oracle contract** allowance to take NEAR LINK from it. Before officially adding the request, it will `transfer_from` to capture the payment, keeping track of this amount in the `withdrawable_token` state variable.
-The **oracle node** will be polling the state of its **oracle contract** using `get_all_requests` (which will be paginated in an update)
+The **oracle node** will be polling the state of its **oracle contract** using the paginated `get_requests` function.
 
 Build the oracle, oracle-client, and NEAR LINK contracts with:
 
@@ -38,70 +42,70 @@ Then deploy and instantiate like so…
 NEAR LINK
 ###
 
-    near deploy --accountId near-link.you.testnet --wasmFile near-link-token/res/near_link_token.wasm
-    near call near-link.you.testnet new '{"owner_id": "near-link.you.testnet", "total_supply": "1000000"}' --accountId near-link.you.testnet
+    near deploy --accountId near-link.$NEAR_ACCT --wasmFile near-link-token/res/near_link_token.wasm
+    near call near-link.$NEAR_ACCT new '{"owner_id": "near-link.'$NEAR_ACCT'", "total_supply": "1000000"}' --accountId near-link.$NEAR_ACCT
     
 Oracle contract
 ###
 
-    near deploy --accountId oracle.you.testnet --wasmFile oracle/res/oracle.wasm
-    near call oracle.you.testnet new '{"link_id": "near-link.you.testnet", "owner_id": "oracle.you.testnet"}' --accountId oracle.you.testnet
+    near deploy --accountId oracle.$NEAR_ACCT --wasmFile oracle/res/oracle.wasm
+    near call oracle.$NEAR_ACCT new '{"link_id": "near-link.'$NEAR_ACCT'", "owner_id": "oracle.'$NEAR_ACCT'"}' --accountId oracle.$NEAR_ACCT
     
 Oracle client
 ###
 
 This contract is very bare-bones and does not need an initializing call with `new`
 
-    near deploy --accountId oracle-client.you.testnet --wasmFile oracle-client/res/oracle_client.wasm
+    near deploy --accountId oracle-client.$NEAR_ACCT --wasmFile oracle-client/res/oracle_client.wasm
     
 ## Give fungible tokens and set allowances
 
 Give 50 NEAR LINK to oracle-client:
 
-    near call near-link.you.testnet transfer '{"new_owner_id": "oracle-client.you.testnet", "amount": "50"}' --accountId near-link.you.testnet
+    near call near-link.$NEAR_ACCT transfer '{"new_owner_id": "oracle-client.$NEAR_ACCT", "amount": "50"}' --accountId near-link.$NEAR_ACCT
     
 (Optional) Check balance to confirm:
 
-    near view near-link.you.testnet get_balance '{"owner_id": "oracle-client.you.testnet"}'
+    near view near-link.$NEAR_ACCT get_balance '{"owner_id": "oracle-client.$NEAR_ACCT"}'
     
 **Oracle client** gives **oracle contract** allowance to spend 20 NEAR LINK on their behalf:
 
-    near call near-link.you.testnet set_allowance '{"escrow_account_id": "oracle.you.testnet", "allowance": "20"}' --accountId oracle-client.you.testnet
+    near call near-link.$NEAR_ACCT set_allowance '{"escrow_account_id": "oracle.$NEAR_ACCT", "allowance": "20"}' --accountId oracle-client.$NEAR_ACCT
     
 (Optional) Check allowance to confirm:
 
-    near view near-link.you.testnet get_allowance '{"owner_id": "oracle-client.you.testnet", "escrow_account_id": "oracle.you.testnet"}'
+    near view near-link.$NEAR_ACCT get_allowance '{"owner_id": "oracle-client.$NEAR_ACCT", "escrow_account_id": "oracle.$NEAR_ACCT"}'
     
 **Oracle client** makes a request to **oracle contract** with payment of 10 NEAR LINK:
 
-    near call oracle.you.testnet request '{"payment": "10", "spec_id": "dW5pcXVlIHNwZWMgaWQ=", "callback_address": "oracle-client.you.testnet", "callback_method": "token_price_callback", "nonce": "1", "data_version": "1", "data": "QkFU"}' --accountId oracle-client.you.testnet --gas 10000000000000000
+    near call oracle.$NEAR_ACCT request '{"payment": "10", "spec_id": "dW5pcXVlIHNwZWMgaWQ=", "callback_address": "oracle-client.$NEAR_ACCT", "callback_method": "token_price_callback", "nonce": "1", "data_version": "1", "data": "QkFU"}' --accountId oracle-client.$NEAR_ACCT --gas 10000000000000000
     
 Before the **oracle node** can fulfill the request, they must be authorized.
 
-    near call oracle.you.testnet add_authorization '{"node": "oracle-node.you.testnet"}' --accountId oracle.you.testnet
+    near call oracle.$NEAR_ACCT add_authorization '{"node": "oracle-node.$NEAR_ACCT"}' --accountId oracle.$NEAR_ACCT
     
 (Optional) Check authorization to confirm:
 
-    near view oracle.you.testnet is_authorized '{"node": "oracle-node.you.testnet"}'   
+    near view oracle.$NEAR_ACCT is_authorized '{"node": "oracle-node.$NEAR_ACCT"}'   
          
-Oracle node is polling the state of **oracle contract** to see the request(s):
+Oracle node is polling the state of **oracle contract** to see paginated request(s): TODO
 
-    near view oracle.you.testnet get_all_requests
+    near view oracle.$NEAR_ACCT get_requests
     
 It sees the `data` is `QkFU` which is the Base64-encoded string for `BAT`, the token to look up. The **oracle node** presumably makes a call to an exchange to gather the price of Basic Attention Token (BAT) and finds it is at $0.19 per token.
 The data `0.19` as a Vec<u8> is `MTkuMQ==`
 **Oracle node** uses its NEAR account keys to fulfill the request:
 
-    near call oracle.you.testnet fulfill_request '{"request_id": "oracle-client.you.testnet:1", "payment": "10", "callback_address": "oracle-client.you.testnet", "callback_method": "token_price_callback", "expiration": "1906293427246306700", "data": "MTkuMQ=="}' --accountId oracle-node.you.testnet --gas 10000000000000000
+    near call oracle.$NEAR_ACCT fulfill_request '{"account": "oracle-client.$NEAR_ACCT", "nonce": "1", "payment": "10", "callback_address": "oracle-client.$NEAR_ACCT", "callback_method": "token_price_callback", "expiration": "1906293427246306700", "data": "MTkuMQ=="}' --accountId oracle-node.$NEAR_ACCT --gas 10000000000000000
     
 (Optional) Check the balance of **oracle client**:
 
-    near view near-link.you.testnet get_balance '{"owner_id": "oracle-client.you.testnet"}'
+    near view near-link.$NEAR_ACCT get_balance '{"owner_id": "oracle-client.$NEAR_ACCT"}'
     
 Expect `40`
     
 (Optional) Check the allowance of **oracle contract**:
 
-    near view near-link.you.testnet get_allowance '{"owner_id": "oracle-client.you.testnet", "escrow_account_id": "oracle.you.testnet"}'
+    near view near-link.$NEAR_ACCT get_allowance '{"owner_id": "oracle-client.$NEAR_ACCT", "escrow_account_id": "oracle.$NEAR_ACCT"}'
     
 Expect `10`
