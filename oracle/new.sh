@@ -1,2 +1,2 @@
 #!/bin/bash
-near call v0.oracle.testnet new '{"link_id": "v0.link.testnet", "owner_id": "v0.oracle.testnet"}' --accountId v0.oracle.testnet
+near call oracle.$NEAR_ACCT new '{"link_id": "near-link.'$NEAR_ACCT'", "owner_id": "oracle.'$NEAR_ACCT'"}' --accountId oracle.$NEAR_ACCT

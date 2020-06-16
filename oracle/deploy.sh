@@ -1,2 +1,2 @@
 #!/bin/bash
-near deploy --accountId v0.oracle.testnet --wasmFile res/oracle.wasm
+near deploy --accountId oracle.$NEAR_ACCT --wasmFile res/oracle.wasm
