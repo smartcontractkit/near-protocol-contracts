@@ -24,10 +24,10 @@ Set an environment variable to use in these examples. For instance, if your test
 Create a NEAR testnet account with [Wallet](https://wallet.testnet.near.org).
 Create a subaccounts in this fashion:
 
-    near create_account oracle.$NEAR_ACCT --masterAccount $NEAR_ACCT
-    near create_account oracle-client.$NEAR_ACCT --masterAccount $NEAR_ACCT
-    near create_account oracle-node.$NEAR_ACCT --masterAccount $NEAR_ACCT
-    near create_account near-link.$NEAR_ACCT --masterAccount $NEAR_ACCT
+    ~/near/near-shell/bin/near create_account oracle.$NEAR_ACCT --masterAccount $NEAR_ACCT
+    ~/near/near-shell/bin/near create_account oracle-client.$NEAR_ACCT --masterAccount $NEAR_ACCT
+    ~/near/near-shell/bin/near create_account oracle-node.$NEAR_ACCT --masterAccount $NEAR_ACCT
+    ~/near/near-shell/bin/near create_account near-link.$NEAR_ACCT --masterAccount $NEAR_ACCT
 
 **Oracle client** will call the **oracle contract** to make a request for external data.
 **Oracle client** has given the **oracle contract** allowance to take NEAR LINK from it. Before officially adding the request, it will `transfer_from` to capture the payment, keeping track of this amount in the `withdrawable_token` state variable.
@@ -78,7 +78,7 @@ Give 50 NEAR LINK to oracle-client:
     
 **Oracle client** makes a request to **oracle contract** with payment of 10 NEAR LINK:
 
-    near call oracle.$NEAR_ACCT request '{"payment": "10", "spec_id": "dW5pcXVlIHNwZWMgaWQ=", "callback_address": "oracle-client.$NEAR_ACCT", "callback_method": "token_price_callback", "nonce": "1", "data_version": "1", "data": "QkFU"}' --accountId oracle-client.$NEAR_ACCT --gas 10000000000000000
+    near call oracle.$NEAR_ACCT request '{"payment": "10", "spec_id": "dW5pcXVlIHNwZWMgaWQ=", "callback_address": "oracle-client.'$NEAR_ACCT'", "callback_method": "token_price_callback", "nonce": "1", "data_version": "1", "data": "QkFU"}' --accountId oracle-client.$NEAR_ACCT --gas 10000000000000000
     
 Before the **oracle node** can fulfill the request, they must be authorized.
 
