@@ -1,13 +1,5 @@
 #!/bin/bash
-set -e
 
-pushd $(dirname $0)
-
-for d in */ ; do
-    pushd $d
-    echo "Testing $d"
-    cargo test -- --nocapture
-    popd
-done
-
-popd
+cd near-link-token && ./test.sh && cd ..
+cd oracle && ./test.sh && cd ..
+cd oracle-client && ./test.sh && cd ..

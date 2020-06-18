@@ -1,9 +1,6 @@
 #!/bin/bash
-set -e
 
-for d in */ ; do
-    echo "Building $d"
-    pushd $d
-    ./build.sh
-    popd
-done
+cd near-link-token && ./build.sh && cd ..
+cd oracle && ./build.sh && cd ..
+cd oracle-client && ./build.sh && cd ..
+

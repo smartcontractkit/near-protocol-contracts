@@ -1,9 +1,9 @@
-# Status Message
+# Oracle
 
-Records the status messages of the accounts that call this contract.
+The [Chainlink Oracle contract](https://github.com/smartcontractkit/chainlink/blob/develop/evm-contracts/src/v0.6/Oracle.sol) ported to Rust.
 
 ## Testing
 To test run:
 ```bash
-cargo test --package status-message -- --nocapture
+cargo test --package oracle -- --nocapture
 ```

@@ -1,5 +1,5 @@
 target
 *.wasm
 *.wat
-
+**/node_modules
 .DS_Store
