@@ -275,7 +275,7 @@ impl Oracle {
         let promise_post_callback = env::promise_then(
             promise_perform_callback,
             env::current_account_id(),
-            b"fulfillment_perform_callback",
+            b"fulfillment_post_callback",
             json!({
                 "account": account,
                 "nonce": nonce
@@ -301,7 +301,7 @@ impl Oracle {
         }
     }
 
-    pub fn fulfillment_perform_callback(&mut self, account: AccountId, nonce: U128) {
+    pub fn fulfillment_post_callback(&mut self, account: AccountId, nonce: U128) {
         self._only_owner_predecessor();
         // TODO: fix this "if" workaround until I can figure out how to write tests with promises
         if cfg!(target_arch = "wasm32") {
@@ -309,7 +309,7 @@ impl Oracle {
             // ensure successful promise, meaning tokens are transferred
             match env::promise_result(0) {
                 PromiseResult::Successful(_) => {},
-                PromiseResult::Failed => env::panic(b"(fulfillment_perform_callback) The promise failed. See receipt failures."),
+                PromiseResult::Failed => env::panic(b"(fulfillment_post_callback) The promise failed. See receipt failures."),
                 PromiseResult::NotReady => env::panic(b"The promise was not ready."),
             };
         }
