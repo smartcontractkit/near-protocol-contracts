@@ -24,10 +24,10 @@ Set an environment variable to use in these examples. For instance, if your test
 Create a NEAR testnet account with [Wallet](https://wallet.testnet.near.org).
 Create a subaccounts in this fashion:
 
-    ~/near/near-shell/bin/near create_account oracle.$NEAR_ACCT --masterAccount $NEAR_ACCT
-    ~/near/near-shell/bin/near create_account client.$NEAR_ACCT --masterAccount $NEAR_ACCT
-    ~/near/near-shell/bin/near create_account oracle-node.$NEAR_ACCT --masterAccount $NEAR_ACCT
-    ~/near/near-shell/bin/near create_account near-link.$NEAR_ACCT --masterAccount $NEAR_ACCT
+    near create_account oracle.$NEAR_ACCT --masterAccount $NEAR_ACCT
+    near create_account client.$NEAR_ACCT --masterAccount $NEAR_ACCT
+    near create_account oracle-node.$NEAR_ACCT --masterAccount $NEAR_ACCT
+    near create_account near-link.$NEAR_ACCT --masterAccount $NEAR_ACCT
 
 **Oracle client** will call the **oracle contract** to make a request for external data.
 **Oracle client** has given the **oracle contract** allowance to take NEAR LINK from it. Before officially adding the request, it will `transfer_from` to capture the payment, keeping track of this amount in the `withdrawable_token` state variable.
