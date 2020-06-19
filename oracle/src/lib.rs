@@ -1,9 +1,8 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Serialize, Deserialize};
 use near_sdk::collections::{TreeMap, UnorderedSet, UnorderedMap};
-use near_sdk::json_types::U128;
+use near_sdk::json_types::{U128, U64};
 use near_sdk::{AccountId, env, near_bindgen, PromiseResult};
-use std::collections::HashMap;
 use serde_json::json;
 use std::str;
 
@@ -15,10 +14,11 @@ const EXPIRY_TIME: u64 = 5 * 60 * 1000_000_000;
 const MINIMUM_CONSUMER_GAS_LIMIT: u64 = 1000_000_000;
 const ONE_FOR_CONSISTENT_GAS_COST: u128 = 1;
 const SINGLE_CALL_GAS: u64 = 200000000000000;
+const TRANSFER_FROM_NEAR_COST: u128 = 36500000000000000000000;
 
 pub type Base64String = String;
 
-#[derive(Default, BorshDeserialize, BorshSerialize, Debug)]
+#[derive(Default, BorshDeserialize, BorshSerialize, Debug, Clone)]
 #[derive(Serialize, Deserialize)]
 pub struct OracleRequest {
     caller_account: AccountId,
@@ -33,7 +33,7 @@ pub struct OracleRequest {
 #[derive(Serialize, Deserialize)]
 pub struct SummaryJSON {
     account: AccountId,
-    total_requests: u16,
+    total_requests: u16, // TODO: choosing u16? need to enforce if so
 }
 
 #[derive(Serialize, Deserialize)]
@@ -101,7 +101,7 @@ impl Oracle {
                 "new_owner_id": env::current_account_id(),
                 "amount": payment,
             }).to_string().as_bytes(),
-            0,
+            TRANSFER_FROM_NEAR_COST,
             SINGLE_CALL_GAS,
         );
 
@@ -209,9 +209,8 @@ impl Oracle {
             let mut nonce_request = self.requests.get(&sender).unwrap_or_default();
             nonce_request.insert(&nonce_u128, &oracle_request);
             self.requests.insert(&sender.clone(), &nonce_request);
+            env::log(format!("Inserted commitment with\nKey: {:?}\nValue: {:?}", nonce_u128.clone(), oracle_request.clone()).as_bytes());
 
-            // env::log(format!("Inserting commitment with key {:?}", request_id_bytes.clone()).as_bytes());
-            // env::log(format!("Inserting commitment with value {:?}", commitment.clone()).as_bytes());
             self.commitments.insert(&request_id_bytes, &commitment);
         }
     }
@@ -351,6 +350,7 @@ impl Oracle {
         self.authorized_nodes.remove(&node);
     }
 
+    /*
     pub fn withdraw(&mut self, _recipient: AccountId, amount: u128) {
         self._only_owner();
         self._has_available_funds(amount);
@@ -358,25 +358,28 @@ impl Oracle {
         self.withdrawable_tokens -= amount;
         // TODO: Transfer LINK. Does this method make sense in NEAR?
     }
+    */
 
     /// Get up to first 65K accounts that have their own associated nonces => requests
-    pub fn get_requests_summary(&self, max_num_accounts: u64) -> String {
+    pub fn get_requests_summary(&self, max_num_accounts: U64) -> String {
         let mut counter: u64 = 0;
-        let mut result: Vec<SummaryJSON> = Vec::with_capacity(max_num_accounts as usize);
+        let max_num_accounts_u64: u64 = max_num_accounts.into();
+        let mut result: Vec<SummaryJSON> = Vec::with_capacity(max_num_accounts_u64 as usize);
 
         for req in self.requests.iter() {
-            self._request_summary_iterate(&max_num_accounts, req, &mut result, &mut counter);
+            self._request_summary_iterate(&max_num_accounts_u64, req, &mut result, &mut counter);
         }
 
         serde_json::to_string(&result).unwrap()
     }
 
-    pub fn get_requests_summary_from(&self, from_account: AccountId, max_num_accounts: u64) -> String {
+    pub fn get_requests_summary_from(&self, from_account: AccountId, max_num_accounts: U64) -> String {
         let mut counter: u64 = 0;
-        let mut result: Vec<SummaryJSON> = Vec::with_capacity(max_num_accounts as usize);
+        let max_num_accounts_u64: u64 = max_num_accounts.into();
+        let mut result: Vec<SummaryJSON> = Vec::with_capacity(max_num_accounts_u64 as usize);
 
         for req in self.requests.iter_from(from_account) {
-            self._request_summary_iterate(&max_num_accounts, req, &mut result, &mut counter);
+            self._request_summary_iterate(&max_num_accounts_u64, req, &mut result, &mut counter);
         }
 
         serde_json::to_string(&result).unwrap()
@@ -389,7 +392,6 @@ impl Oracle {
         }
         let account = req.0;
         let total_requests = req.1.len() as u16;
-        println!("aloha {} {}", account, total_requests);
         result.push(SummaryJSON {
             account,
             total_requests
@@ -398,16 +400,17 @@ impl Oracle {
         *counter += 1;
     }
 
-    pub fn get_requests(&self, account: AccountId, max_requests: u64) -> String {
+    pub fn get_requests(&self, account: AccountId, max_requests: U64) -> String {
+        let max_requests_u64: u64 = max_requests.into();
         if !self.requests.contains_key(&account) {
             env::panic(format!("Account {} has no requests.", account).as_bytes());
         }
         let mut counter: u64 = 0;
-        let mut result: Vec<RequestsJSON> = Vec::with_capacity(max_requests as usize);
+        let mut result: Vec<RequestsJSON> = Vec::with_capacity(max_requests_u64 as usize);
         let account_requests_map = self.requests.get(&account).unwrap();
 
         for req in account_requests_map.iter() {
-            self._request_iterate(&max_requests, req, &mut result, &mut counter);
+            self._request_iterate(&max_requests_u64, req, &mut result, &mut counter);
         }
 
         serde_json::to_string(&result).unwrap()
@@ -420,7 +423,6 @@ impl Oracle {
         }
         let nonce = req.0;
         let oracle_request = req.1;
-        println!("aloha {} {:?}", nonce, oracle_request);
         result.push(RequestsJSON {
             nonce: U128(nonce),
             request: oracle_request,
@@ -501,7 +503,7 @@ mod tests {
     use super::*;
     use near_sdk::{MockedBlockchain, StorageUsage};
     use near_sdk::{testing_env, VMContext};
-    use base64::{encode, decode};
+    use base64::{encode};
 
     fn link() -> AccountId { "link_near".to_string() }
     fn alice() -> AccountId { "alice_near".to_string() }
@@ -536,23 +538,23 @@ mod tests {
         let sender = alice();
         let payment_json: U128 = 51319_u128.into();
         let spec_id = encode("unique spec id".to_string());
-        let nonce = 1_u128;
         let nonce_json: U128 = 1_u128.into();
         let data_version_json: U128 = 131_u128.into();
         let data = encode("BAT".to_string());
-        contract.store_request( alice(), payment_json, spec_id, "callback.sender.testnet".to_string(), "my_callback_fn".to_string(), nonce_json, data_version_json, data);
+        contract.store_request( sender, payment_json, spec_id, "callback.sender.testnet".to_string(), "my_callback_fn".to_string(), nonce_json, data_version_json, data);
 
         // second validate the serialized requests
-        // let serialized_output = contract.get_requests_summary(1);
-        let serialized_output = contract.get_requests(alice(), 1);
+        let max_requests: U64 = 1u64.into();
+        let serialized_output = contract.get_requests(alice(), max_requests);
         let expected_result = "[{\"nonce\":\"1\",\"request\":{\"caller_account\":\"alice_near\",\"request_spec\":\"dW5pcXVlIHNwZWMgaWQ=\",\"callback_address\":\"callback.sender.testnet\",\"callback_method\":\"my_callback_fn\",\"data\":\"QkFU\",\"payment\":51319,\"expiration\":1906293427246306700}}]";
         assert_eq!(expected_result, serialized_output);
     }
 
     #[test]
     fn make_request() {
-        let context = get_context(alice(), 0);
-        testing_env!(context);
+        let mut context = get_context(alice(), 0);
+        context.attached_deposit = TRANSFER_FROM_NEAR_COST;
+        testing_env!(context.clone());
         let mut contract = Oracle::new(link(), alice());
         let payment: U128 = 6_u128.into();
         let spec_id = encode("unique spec id".to_string());
@@ -604,7 +606,7 @@ mod tests {
         testing_env!(context);
         contract.store_request( link(), 6_u128.into(), "unique-id".to_string(), "callback.testnet".to_string(), "test_callback".to_string(), 1_u128.into(), 131_u128.into(), "BAT".to_string());
 
-        let max_num_accounts = 2u64;
+        let max_num_accounts: U64 = 2u64.into();
         let json_result = contract.get_requests_summary(max_num_accounts);
         let expected_result = "[{\"account\":\"alice_near\",\"total_requests\":2},{\"account\":\"bob_near\",\"total_requests\":1}]";
         assert_eq!(json_result, expected_result);
@@ -632,7 +634,8 @@ mod tests {
 
         // contract.request(payment.clone(), spec_id, callback_address.clone(), callback_method.clone(), nonce.clone(), data_version, data.clone());
         contract.store_request( alice(), payment, spec_id, callback_address.clone(), callback_method.clone(), nonce.clone(), data_version, data.clone());
-        println!("{}", contract.get_requests_summary(1));
+        let max_num_accounts: U64 = 1u64.into();
+        println!("{}", contract.get_requests_summary(max_num_accounts));
         // authorize bob
         contract.add_authorization(bob());
 
