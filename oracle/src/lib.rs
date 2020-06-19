@@ -12,7 +12,6 @@ static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 const EXPIRY_TIME: u64 = 5 * 60 * 1000_000_000;
 
 const MINIMUM_CONSUMER_GAS_LIMIT: u64 = 1000_000_000;
-const ONE_FOR_CONSISTENT_GAS_COST: u128 = 1;
 const SINGLE_CALL_GAS: u64 = 200000000000000;
 const TRANSFER_FROM_NEAR_COST: u128 = 36500000000000000000000;
 
@@ -47,7 +46,6 @@ pub struct RequestsJSON {
 pub struct Oracle {
     pub owner: AccountId,
     pub link_account: AccountId,
-    pub withdrawable_tokens: u128,
     pub commitments: UnorderedMap<Vec<u8>, Vec<u8>>,
     // using HashMap instead of Map because Map won't serialize with serde
     // TODO: don't use HashMap
@@ -71,7 +69,7 @@ impl Default for Oracle {
 
 #[near_bindgen]
 impl Oracle {
-    /// Initializes the contract with the given total supply owned by the given `owner_id` and `withdrawable_tokens`
+    /// Initializes the contract with the given total supply owned by the given `owner_id`
     #[init]
     pub fn new(link_id: AccountId, owner_id: AccountId) -> Self {
         assert!(env::is_valid_account_id(owner_id.as_bytes()), "Owner's account ID is invalid");
@@ -80,7 +78,6 @@ impl Oracle {
         Self {
             owner: owner_id,
             link_account: link_id,
-            withdrawable_tokens: ONE_FOR_CONSISTENT_GAS_COST,
             commitments: UnorderedMap::new(b"commitments".to_vec()),
             requests: TreeMap::new(b"requests".to_vec()),
             authorized_nodes: UnorderedSet::new(b"authorized_nodes".to_vec()),
@@ -258,9 +255,7 @@ impl Oracle {
             promise_pay_oracle_node,
             env::current_account_id(),
             b"fulfillment_post_oracle_payment",
-            json!({
-                "payment": payment
-            }).to_string().as_bytes(),
+            &[],
             0,
             SINGLE_CALL_GAS
         );
@@ -292,7 +287,7 @@ impl Oracle {
         env::promise_return(promise_post_callback);
     }
 
-    pub fn fulfillment_post_oracle_payment(&mut self, payment: U128) {
+    pub fn fulfillment_post_oracle_payment(&mut self) {
         self._only_owner_predecessor();
         // TODO: fix this "if" workaround until I can figure out how to write tests with promises
         if cfg!(target_arch = "wasm32") {
@@ -304,10 +299,6 @@ impl Oracle {
                 PromiseResult::NotReady => env::panic(b"The promise was not ready."),
             };
         }
-        // Subtract payment from local state
-        let payment_u128: u128 = payment.into();
-        self.withdrawable_tokens -= payment_u128;
-        // TODO LEFTOFF: we need to add to this after the first request comes in I think
     }
 
     pub fn fulfillment_perform_callback(&mut self, account: AccountId, nonce: U128) {
@@ -349,16 +340,6 @@ impl Oracle {
 
         self.authorized_nodes.remove(&node);
     }
-
-    /*
-    pub fn withdraw(&mut self, _recipient: AccountId, amount: u128) {
-        self._only_owner();
-        self._has_available_funds(amount);
-        
-        self.withdrawable_tokens -= amount;
-        // TODO: Transfer LINK. Does this method make sense in NEAR?
-    }
-    */
 
     /// Get up to first 65K accounts that have their own associated nonces => requests
     pub fn get_requests_summary(&self, max_num_accounts: U64) -> String {
@@ -436,10 +417,6 @@ impl Oracle {
         self.commitments.to_vec()
     }
 
-    pub fn get_withdrawable_tokens(&self) -> u128 {
-        self.withdrawable_tokens
-    }
-
     pub fn reset(&mut self) {
         self._only_owner();
         self.commitments.clear();
@@ -451,11 +428,6 @@ impl Oracle {
     pub fn panic(&mut self, error_message: String) {
         self._only_owner_predecessor();
         env::panic(error_message.as_bytes());
-    }
-
-    // TODO: organize into impl for private functions
-    fn _has_available_funds(&mut self, amount: u128) {
-        assert!(self.withdrawable_tokens >= amount, "Amount requested is greater than withdrawable balance.");
     }
 
     fn _only_owner(&mut self) {
