@@ -12,7 +12,7 @@ static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 const EXPIRY_TIME: u64 = 5 * 60 * 1000_000_000;
 
 const MINIMUM_CONSUMER_GAS_LIMIT: u64 = 1000_000_000;
-const SINGLE_CALL_GAS: u64 = 200000000000000;
+const SINGLE_CALL_GAS: u64 = 200_000_000_000_000; // 2 x 10^14
 const TRANSFER_FROM_NEAR_COST: u128 = 36_500_000_000_000_000_000_000; // 365 x 10^20
 
 pub type Base64String = String;
