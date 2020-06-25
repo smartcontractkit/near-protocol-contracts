@@ -98,7 +98,7 @@ Oracle node is polling the state of **oracle contract** to see paginated request
 
 The previous command is useful if there has been significant scaling from many client accounts/contracts. To see the individual requests for a particular user, use the following command:
 
-    near view oracle.$NEAR_ACCT get_requests '{"account": "client.oracle.testnet", "max_requests": "10"}'
+    near view oracle.$NEAR_ACCT get_requests '{"account": "client.'$NEAR_ACCT'", "max_requests": "10"}'
     
 It sees the `data` is `QkFU` which is the Base64-encoded string for `BAT`, the token to look up. The **oracle node** presumably makes a call to an exchange to gather the price of Basic Attention Token (BAT) and finds it is at $0.19 per token.
 The data `0.19` as a Vec<u8> is `MTkuMQ==`
