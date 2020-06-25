@@ -56,7 +56,7 @@ Oracle client
 
 This contract is very bare-bones and does not need an initializing call with `new`
 
-    near deploy --accountId client.$NEAR_ACCT --wasmFile oracle-client/res/oracle_client.wasm
+    near deploy --accountId client.$NEAR_ACCT --wasmFile client/res/client.wasm
     
 ## Give fungible tokens and set allowances
 
