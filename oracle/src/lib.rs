@@ -14,7 +14,6 @@ const EXPIRY_TIME: u64 = 5 * 60 * 1000_000_000;
 const MINIMUM_CONSUMER_GAS_LIMIT: u64 = 1000_000_000;
 const SINGLE_CALL_GAS: u64 = 200_000_000_000_000; // 2 x 10^14
 const TRANSFER_FROM_NEAR_COST: u128 = 36_500_000_000_000_000_000_000; // 365 x 10^20
-const ONE_FOR_CONSISTENT_GAS_COST: u128 = 1;
 
 pub type Base64String = String;
 
@@ -80,7 +79,7 @@ impl Oracle {
         Self {
             owner: owner_id,
             link_account: link_id,
-            withdrawable_tokens: ONE_FOR_CONSISTENT_GAS_COST,
+            withdrawable_tokens: 0,
             commitments: UnorderedMap::new(b"commitments".to_vec()),
             requests: TreeMap::new(b"requests".to_vec()),
             authorized_nodes: UnorderedSet::new(b"authorized_nodes".to_vec()),
@@ -212,6 +211,7 @@ impl Oracle {
             env::log(format!("Inserted commitment with\nKey: {:?}\nValue: {:?}", nonce_u128.clone(), oracle_request.clone()).as_bytes());
 
             self.commitments.insert(&request_id_bytes, &commitment);
+            self.withdrawable_tokens += payment_u128;
         }
     }
 
@@ -350,15 +350,54 @@ impl Oracle {
         self.authorized_nodes.remove(&node);
     }
 
-    /*
-    pub fn withdraw(&mut self, _recipient: AccountId, amount: u128) {
+    pub fn withdraw(&mut self, recipient: AccountId, amount: U128) {
         self._only_owner();
-        self._has_available_funds(amount);
-        
-        self.withdrawable_tokens -= amount;
-        // TODO: Transfer LINK. Does this method make sense in NEAR?
+        assert!(
+            env::is_valid_account_id(recipient.as_bytes()),
+            "Recipient account ID is invalid."
+        );
+        let amount_u128: u128 = amount.into();
+        self._has_available_funds(amount_u128);
+
+        let promise_withdraw = env::promise_create(
+            self.link_account.clone(),
+            b"transfer",
+            json!({
+                "owner_id": env::current_account_id(),
+                "new_owner_id": recipient.clone(),
+                "amount": amount.clone(),
+            }).to_string().as_bytes(),
+            0,
+            SINGLE_CALL_GAS,
+        );
+
+        // call this contract's panic function after refunding
+        let promise_decrement_withdrawable = env::promise_then(
+            promise_withdraw,
+            env::current_account_id(),
+            b"post_withdraw",
+            json!({
+                "amount": amount.clone()
+            }).to_string().as_bytes(),
+            0,
+            SINGLE_CALL_GAS * 2
+        );
+
+        env::promise_return(promise_decrement_withdrawable);
     }
-    */
+
+    pub fn post_withdraw(&mut self, amount: U128) {
+        assert_eq!(env::promise_results_count(), 1);
+        match env::promise_result(0) {
+            PromiseResult::Successful(_) => {},
+            PromiseResult::Failed => env::panic(b"(post_withdraw) The promise failed. See receipt failures."),
+            PromiseResult::NotReady => env::panic(b"The promise was not ready."),
+        };
+
+        let amount_u128: u128 = amount.into();
+        self.withdrawable_tokens -= amount_u128.clone();
+        env::log(b"Decremented withdrawable tokens")
+    }
 
     /// Get up to first 65K accounts that have their own associated nonces => requests
     pub fn get_requests_summary(&self, max_num_accounts: U64) -> String {
@@ -453,7 +492,6 @@ impl Oracle {
         env::panic(error_message.as_bytes());
     }
 
-    // TODO: organize into impl for private functions
     fn _has_available_funds(&mut self, amount: u128) {
         assert!(self.withdrawable_tokens >= amount, "Amount requested is greater than withdrawable balance.");
     }
