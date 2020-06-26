@@ -258,9 +258,7 @@ impl Oracle {
             promise_pay_oracle_node,
             env::current_account_id(),
             b"fulfillment_post_oracle_payment",
-            json!({
-                "payment": payment
-            }).to_string().as_bytes(),
+            &[],
             0,
             SINGLE_CALL_GAS
         );
@@ -292,7 +290,7 @@ impl Oracle {
         env::promise_return(promise_post_callback);
     }
 
-    pub fn fulfillment_post_oracle_payment(&mut self, payment: U128) {
+    pub fn fulfillment_post_oracle_payment(&mut self) {
         self._only_owner_predecessor();
         // TODO: fix this "if" workaround until I can figure out how to write tests with promises
         if cfg!(target_arch = "wasm32") {
@@ -304,10 +302,6 @@ impl Oracle {
                 PromiseResult::NotReady => env::panic(b"The promise was not ready."),
             };
         }
-        // Subtract payment from local state
-        let payment_u128: u128 = payment.into();
-        self.withdrawable_tokens -= payment_u128;
-        // TODO LEFTOFF: we need to add to this after the first request comes in I think
     }
 
     pub fn fulfillment_post_callback(&mut self, account: AccountId, nonce: U128) {
