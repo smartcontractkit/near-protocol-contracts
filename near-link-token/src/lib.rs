@@ -124,10 +124,7 @@ impl FungibleToken {
             "Escrow account ID is invalid"
         );
         let owner_id = env::predecessor_account_id();
-       assert!(
-            escrow_account_id != owner_id,
-            "Can not decrement allowance for yourself"
-        );
+       assert_ne!(escrow_account_id, owner_id, "Can not decrement allowance for yourself");
         let mut account = self.get_account(&owner_id);
         let current_allowance = account.get_allowance(&escrow_account_id);
         account.set_allowance(&escrow_account_id, current_allowance.saturating_sub(amount.0));
