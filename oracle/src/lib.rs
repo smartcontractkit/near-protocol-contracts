@@ -381,6 +381,7 @@ impl Oracle {
     }
 
     pub fn post_withdraw(&mut self, amount: U128) {
+        self._only_owner_predecessor();
         assert_eq!(env::promise_results_count(), 1);
         match env::promise_result(0) {
             PromiseResult::Successful(_) => {},
