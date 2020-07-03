@@ -24,16 +24,16 @@ Set an environment variable to use in these examples. For instance, if your test
 Create a NEAR testnet account with [Wallet](https://wallet.testnet.near.org).
 Create a subaccounts in this fashion:
 
-    ~/near/near-shell/bin/near create_account oracle.$NEAR_ACCT --masterAccount $NEAR_ACCT
-    ~/near/near-shell/bin/near create_account oracle-client.$NEAR_ACCT --masterAccount $NEAR_ACCT
-    ~/near/near-shell/bin/near create_account oracle-node.$NEAR_ACCT --masterAccount $NEAR_ACCT
-    ~/near/near-shell/bin/near create_account near-link.$NEAR_ACCT --masterAccount $NEAR_ACCT
+    near create_account oracle.$NEAR_ACCT --masterAccount $NEAR_ACCT
+    near create_account client.$NEAR_ACCT --masterAccount $NEAR_ACCT
+    near create_account oracle-node.$NEAR_ACCT --masterAccount $NEAR_ACCT
+    near create_account near-link.$NEAR_ACCT --masterAccount $NEAR_ACCT
 
 **Oracle client** will call the **oracle contract** to make a request for external data.
 **Oracle client** has given the **oracle contract** allowance to take NEAR LINK from it. Before officially adding the request, it will `transfer_from` to capture the payment, keeping track of this amount in the `withdrawable_token` state variable.
 The **oracle node** will be polling the state of its **oracle contract** using the paginated `get_requests` function.
 
-Build the oracle, oracle-client, and NEAR LINK contracts with:
+Build the oracle, client, and NEAR LINK contracts with:
 
     ./build_all.sh
     
@@ -56,56 +56,94 @@ Oracle client
 
 This contract is very bare-bones and does not need an initializing call with `new`
 
-    near deploy --accountId oracle-client.$NEAR_ACCT --wasmFile oracle-client/res/oracle_client.wasm
+    near deploy --accountId client.$NEAR_ACCT --wasmFile client/res/client.wasm
     
 ## Give fungible tokens and set allowances
 
-Give 50 NEAR LINK to oracle-client:
+Give 50 NEAR LINK to client:
 
-    near call near-link.$NEAR_ACCT transfer '{"new_owner_id": "oracle-client.$NEAR_ACCT", "amount": "50"}' --accountId near-link.$NEAR_ACCT
+    near call near-link.$NEAR_ACCT transfer '{"new_owner_id": "client.'$NEAR_ACCT'", "amount": "50"}' --accountId near-link.$NEAR_ACCT --amount .0365
+    
+**Note**: above, we use the `amount` flag in order to pay for the state required.
     
 (Optional) Check balance to confirm:
 
-    near view near-link.$NEAR_ACCT get_balance '{"owner_id": "oracle-client.$NEAR_ACCT"}'
+    near view near-link.$NEAR_ACCT get_balance '{"owner_id": "client.'$NEAR_ACCT'"}'
     
 **Oracle client** gives **oracle contract** allowance to spend 20 NEAR LINK on their behalf:
 
-    near call near-link.$NEAR_ACCT set_allowance '{"escrow_account_id": "oracle.$NEAR_ACCT", "allowance": "20"}' --accountId oracle-client.$NEAR_ACCT
+    near call near-link.$NEAR_ACCT inc_allowance '{"escrow_account_id": "oracle.'$NEAR_ACCT'", "amount": "20"}' --accountId client.$NEAR_ACCT --amount .0696
     
 (Optional) Check allowance to confirm:
 
-    near view near-link.$NEAR_ACCT get_allowance '{"owner_id": "oracle-client.$NEAR_ACCT", "escrow_account_id": "oracle.$NEAR_ACCT"}'
+    near view near-link.$NEAR_ACCT get_allowance '{"owner_id": "client.'$NEAR_ACCT'", "escrow_account_id": "oracle.'$NEAR_ACCT'"}'
     
 **Oracle client** makes a request to **oracle contract** with payment of 10 NEAR LINK:
 
-    near call oracle.$NEAR_ACCT request '{"payment": "10", "spec_id": "dW5pcXVlIHNwZWMgaWQ=", "callback_address": "oracle-client.'$NEAR_ACCT'", "callback_method": "token_price_callback", "nonce": "1", "data_version": "1", "data": "QkFU"}' --accountId oracle-client.$NEAR_ACCT --gas 10000000000000000
+    near call oracle.$NEAR_ACCT request '{"payment": "10", "spec_id": "dW5pcXVlIHNwZWMgaWQ=", "callback_address": "client.'$NEAR_ACCT'", "callback_method": "token_price_callback", "nonce": "1", "data_version": "1", "data": "QkFU"}' --accountId client.$NEAR_ACCT --gas 10000000000000000
     
 Before the **oracle node** can fulfill the request, they must be authorized.
 
-    near call oracle.$NEAR_ACCT add_authorization '{"node": "oracle-node.$NEAR_ACCT"}' --accountId oracle.$NEAR_ACCT
+    near call oracle.$NEAR_ACCT add_authorization '{"node": "oracle-node.'$NEAR_ACCT'"}' --accountId oracle.$NEAR_ACCT
     
 (Optional) Check authorization to confirm:
 
-    near view oracle.$NEAR_ACCT is_authorized '{"node": "oracle-node.$NEAR_ACCT"}'   
+    near view oracle.$NEAR_ACCT is_authorized '{"node": "oracle-node.'$NEAR_ACCT'"}'   
          
-Oracle node is polling the state of **oracle contract** to see paginated request(s): TODO
+Oracle node is polling the state of **oracle contract** to see paginated request *summary*, which shows which accounts have requests pending and how many total are pending:
 
-    near view oracle.$NEAR_ACCT get_requests
+    near view oracle.$NEAR_ACCT get_requests_summary '{"max_num_accounts": "10"}'
+    
+**Note**: aside from `get_requests_summary` there is also `get_requests_summary_from`. Since the `TreeMap` data structure is ordered, the former will list the first N (`max_num_accounts`). Usage of `get_requests_summary_from` is for paging, providing a window of results to return. Please see function details for parameters and usage.
+
+The previous command is useful if there has been significant scaling from many client accounts/contracts. To see the individual requests for a particular user, use the following command:
+
+    near view oracle.$NEAR_ACCT get_requests '{"account": "client.'$NEAR_ACCT'", "max_requests": "10"}'
+    
+Or if you have [jq installed](https://stedolan.github.io/jq/) you may use:
+
+    near view oracle.$NEAR_ACCT get_requests '{"account": "client.'$NEAR_ACCT'", "max_requests": "10"}' | tail -n 1 | sed "s/.\[32m'//g; s/'.\[39m//g" | jq
     
 It sees the `data` is `QkFU` which is the Base64-encoded string for `BAT`, the token to look up. The **oracle node** presumably makes a call to an exchange to gather the price of Basic Attention Token (BAT) and finds it is at $0.19 per token.
-The data `0.19` as a Vec<u8> is `MTkuMQ==`
+The data `0.19` as a Vec<u8> is `MTkuMQ==` 
+
 **Oracle node** uses its NEAR account keys to fulfill the request:
 
-    near call oracle.$NEAR_ACCT fulfill_request '{"account": "oracle-client.$NEAR_ACCT", "nonce": "1", "payment": "10", "callback_address": "oracle-client.$NEAR_ACCT", "callback_method": "token_price_callback", "expiration": "1906293427246306700", "data": "MTkuMQ=="}' --accountId oracle-node.$NEAR_ACCT --gas 10000000000000000
+    near call oracle.$NEAR_ACCT fulfill_request '{"account": "client.'$NEAR_ACCT'", "nonce": "1", "payment": "10", "callback_address": "client.'$NEAR_ACCT'", "callback_method": "token_price_callback", "expiration": "1906293427246306700", "data": "MTkuMQ=="}' --accountId oracle-node.$NEAR_ACCT --gas 10000000000000000
     
 (Optional) Check the balance of **oracle client**:
 
-    near view near-link.$NEAR_ACCT get_balance '{"owner_id": "oracle-client.$NEAR_ACCT"}'
+    near view near-link.$NEAR_ACCT get_balance '{"owner_id": "client.'$NEAR_ACCT'"}'
     
 Expect `40`
     
 (Optional) Check the allowance of **oracle contract**:
 
-    near view near-link.$NEAR_ACCT get_allowance '{"owner_id": "oracle-client.$NEAR_ACCT", "escrow_account_id": "oracle.$NEAR_ACCT"}'
+    near view near-link.$NEAR_ACCT get_allowance '{"owner_id": "client.'$NEAR_ACCT'", "escrow_account_id": "oracle.'$NEAR_ACCT'"}'
     
 Expect `10`
+
+The oracle node and oracle contract are assumed to be owned by the same person/entity. The oracle contract has "withdrawable tokens" that can be taken when it's most convenient. Some oracles may choose to transfer these tokens immediately after fulfillment. Here we are using the withdrawable pattern, where gas is conserved by not transferring after each request fulfillment. 
+
+(Optional) Check the withdrawable tokens on the oracle contract with this command:
+
+    near view oracle.$NEAR_ACCT get_withdrawable_tokens
+    
+(Optional) Check the fungible token balance of the client and the base account we'll be extracting to it. (This is the original account we set the `NEAR_ACCT` environment variable to, for demonstration purposes)
+
+    near view near-link.$NEAR_ACCT get_balance '{"owner_id": "oracle.'$NEAR_ACCT'"}'
+
+    near view near-link.$NEAR_ACCT get_balance '{"owner_id": "'$NEAR_ACCT'"}'
+    
+Finally, withdraw the fungible tokens from the oracle contract into another account, the base account, who presumably owns both the oracle node and oracle contract.
+
+    near call oracle.$NEAR_ACCT withdraw '{"recipient": "'$NEAR_ACCT'", "amount": "20"}' --accountId oracle.$NEAR_ACCT --gas 10000000000000000
+    
+You may use the previous two `get_balance` view methods to confirm that the fungible tokens have indeed been withdrawn.
+        
+## Notes
+The client is responsible for making sure there is enough allowance for fungible token transfers. It may be advised to add a cushion in addition to expected fungible token transfers as duplicate requests will also decrease allowance.
+
+**Scenario**: a client accidentally sends the same request or a request with the same nonce. The fungible token transfer occurs, decrementing the allowance on the fungible token contract. Then it is found that it's a duplicate, and the fungible tokens are returned. In this case, the allowance will not be increased as this can only be done by the client itself.
+
+One way to handle this is for the client to have logic to increase the allowance if it receives the response indicating a duplicate request has been sent.

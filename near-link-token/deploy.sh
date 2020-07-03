@@ -1,2 +1,2 @@
 #!/bin/bash
-near deploy --accountId v0.link.testnet --wasmFile res/near_link_token.wasm
+near deploy --accountId near-link.$NEAR_ACCT --wasmFile res/near_link_token.wasm
