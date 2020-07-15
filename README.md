@@ -100,7 +100,7 @@ near view near-link.$NEAR_ACCT get_allowance '{"owner_id": "client.'$NEAR_ACCT'"
 **Oracle client** makes a request to **oracle contract** with payment of 10 NEAR LINK:
 
 ```bash
-near call oracle.$NEAR_ACCT request '{"payment": "10", "spec_id": "dW5pcXVlIHNwZWMgaWQ=", "callback_address": "client.'$NEAR_ACCT'", "callback_method": "token_price_callback", "nonce": "1", "data_version": "1", "data": "QkFU"}' --accountId client.$NEAR_ACCT --gas 10000000000000000
+near call oracle.$NEAR_ACCT request '{"payment": "10", "spec_id": "dW5pcXVlIHNwZWMgaWQ=", "callback_address": "client.'$NEAR_ACCT'", "callback_method": "token_price_callback", "nonce": "1", "data_version": "1", "data": "QkFU"}' --accountId client.$NEAR_ACCT --gas 300000000000000
 ```
 
 Before the **oracle node** can fulfill the request, they must be authorized.
@@ -117,7 +117,9 @@ near view oracle.$NEAR_ACCT is_authorized '{"node": "oracle-node.'$NEAR_ACCT'"}'
 
 Oracle node is polling the state of **oracle contract** to see paginated request _summary_, which shows which accounts have requests pending and how many total are pending:
 
-    near view oracle.$NEAR_ACCT get_requests_summary '{"max_num_accounts": "10"}'
+```bash
+near view oracle.$NEAR_ACCT get_requests_summary '{"max_num_accounts": "10"}'
+```
 
 **Note**: aside from `get_requests_summary` there is also `get_requests_summary_from`. Since the `TreeMap` data structure is ordered, the former will list the first N (`max_num_accounts`). Usage of `get_requests_summary_from` is for paging, providing a window of results to return. Please see function details for parameters and usage.
 
@@ -139,7 +141,7 @@ The data `0.19` as a Vec<u8> is `MTkuMQ==`
 **Oracle node** uses its NEAR account keys to fulfill the request:
 
 ```bash
-near call oracle.$NEAR_ACCT fulfill_request '{"account": "client.'$NEAR_ACCT'", "nonce": "1", "payment": "10", "callback_address": "client.'$NEAR_ACCT'", "callback_method": "token_price_callback", "expiration": "1906293427246306700", "data": "MTkuMQ=="}' --accountId oracle-node.$NEAR_ACCT --gas 10000000000000000
+near call oracle.$NEAR_ACCT fulfill_request '{"account": "client.'$NEAR_ACCT'", "nonce": "1", "payment": "10", "callback_address": "client.'$NEAR_ACCT'", "callback_method": "token_price_callback", "expiration": "1906293427246306700", "data": "MTkuMQ=="}' --accountId oracle-node.$NEAR_ACCT --gas 300000000000000
 ```
 
 (Optional) Check the balance of **oracle client**:
@@ -176,7 +178,7 @@ near view near-link.$NEAR_ACCT get_balance '{"owner_id": "'$NEAR_ACCT'"}'
 Finally, withdraw the fungible tokens from the oracle contract into another account, the base account, who presumably owns both the oracle node and oracle contract.
 
 ```bash
-near call oracle.$NEAR_ACCT withdraw '{"recipient": "'$NEAR_ACCT'", "amount": "20"}' --accountId oracle.$NEAR_ACCT --gas 10000000000000000
+near call oracle.$NEAR_ACCT withdraw '{"recipient": "'$NEAR_ACCT'", "amount": "20"}' --accountId oracle.$NEAR_ACCT --gas 300000000000000
 ```
 
 You may use the previous two `get_balance` view methods to confirm that the fungible tokens have indeed been withdrawn.
