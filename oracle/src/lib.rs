@@ -44,11 +44,6 @@ pub struct RequestsJSON {
     request: OracleRequest,
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct AllRequestsJSON {
-    requests: HashMap<AccountId, RequestsJSON>
-}
-
 #[near_bindgen]
 #[derive(BorshDeserialize, BorshSerialize)]
 pub struct Oracle {
@@ -486,30 +481,32 @@ impl Oracle {
         *counter += 1;
     }
 
-    pub fn get_all_requests(&self, max_num_accounts: U64, max_requests: U64) -> AllRequestsJSON {
+    pub fn get_all_requests(&self, max_num_accounts: U64, max_requests: U64) -> HashMap<AccountId, Vec<RequestsJSON>> {
         let max_requests_u64: u64 = max_requests.into();
         let max_num_accounts_u64: u64 = max_num_accounts.into();
         let mut account_counter: u64 = 0;
-        let mut request_counter: u64 = 0;
-        let mut result: AllRequestsJSON = AllRequestsJSON {
-            requests: HashMap::with_capacity(max_requests_u64 as usize)
-        };
+        let mut result: HashMap<AccountId, Vec<RequestsJSON>> = HashMap::new();
 
         for account_requests in self.requests.iter() {
             if account_counter == max_num_accounts_u64 || account_counter > self.requests.len() {
                 break
             }
+            let mut requests: Vec<RequestsJSON> = Vec::new();
+            let mut request_counter: u64 = 0;
             for nonce_request in account_requests.1.iter() {
                 if request_counter == max_requests_u64 || request_counter > account_requests.1.len() {
                     break
                 }
-                result.requests.insert(account_requests.0.clone(), RequestsJSON {
+                let req = RequestsJSON {
                     nonce: U128(nonce_request.0),
                     request: nonce_request.1
-                });
+                };
+                requests.push(req);
+                request_counter += 1;
             }
+            result.insert(account_requests.0.clone(), requests);
+            account_counter += 1;
         }
-
         result
     }
 
