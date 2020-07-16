@@ -5,6 +5,7 @@ use near_sdk::json_types::{U128, U64};
 use near_sdk::{AccountId, env, near_bindgen, PromiseResult};
 use serde_json::json;
 use std::str;
+use std::collections::HashMap;
 
 #[global_allocator]
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
@@ -41,6 +42,11 @@ pub struct SummaryJSON {
 pub struct RequestsJSON {
     nonce: U128,
     request: OracleRequest,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct AllRequestsJSON {
+    requests: HashMap<AccountId, RequestsJSON>
 }
 
 #[near_bindgen]
@@ -473,6 +479,33 @@ impl Oracle {
         });
 
         *counter += 1;
+    }
+
+    pub fn get_all_requests(&self, max_num_accounts: U64, max_requests: U64) -> AllRequestsJSON {
+        let max_requests_u64: u64 = max_requests.into();
+        let max_num_accounts_u64: u64 = max_num_accounts.into();
+        let mut account_counter: u64 = 0;
+        let mut request_counter: u64 = 0;
+        let mut result: AllRequestsJSON = AllRequestsJSON {
+            requests: HashMap::with_capacity(max_requests_u64 as usize)
+        };
+
+        for account_requests in self.requests.iter() {
+            if account_counter == max_num_accounts_u64 || account_counter > self.requests.len() {
+                break
+            }
+            for nonce_request in account_requests.1.iter() {
+                if request_counter == max_requests_u64 || request_counter > account_requests.1.len() {
+                    break
+                }
+                result.requests.insert(account_requests.0.clone(), RequestsJSON {
+                    nonce: U128(nonce_request.0),
+                    request: nonce_request.1
+                });
+            }
+        }
+
+        result
     }
 
     pub fn get_all_commitments(&self) -> Vec<(Vec<u8>, Vec<u8>)> {
