@@ -220,7 +220,12 @@ impl Oracle {
               account =>
                 nonce => { Request }
             */
-            let mut nonce_request = self.requests.get(&sender).unwrap_or_default();
+            let nonce_request_entry = self.requests.get(&sender);
+            let mut nonce_request = if nonce_request_entry.is_none() {
+                TreeMap::new(sender.clone().into_bytes())
+            } else {
+                nonce_request_entry.unwrap()
+            };
             nonce_request.insert(&nonce_u128, &oracle_request);
             self.requests.insert(&sender.clone(), &nonce_request);
             env::log(format!("Inserted commitment with\nKey: {:?}\nValue: {:?}", nonce_u128.clone(), oracle_request.clone()).as_bytes());
