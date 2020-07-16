@@ -5,14 +5,17 @@ use near_sdk::json_types::{U128, U64};
 use near_sdk::{AccountId, env, near_bindgen, PromiseResult};
 use serde_json::json;
 use std::str;
+use std::collections::HashMap;
 
 #[global_allocator]
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
 const EXPIRY_TIME: u64 = 5 * 60 * 1000_000_000;
 
+// max gas: 300_000_000_000_000
+
 const MINIMUM_CONSUMER_GAS_LIMIT: u64 = 1000_000_000;
-const SINGLE_CALL_GAS: u64 = 200_000_000_000_000; // 2 x 10^14
+const SINGLE_CALL_GAS: u64 = 20_000_000_000_000; // 2 x 10^13
 const TRANSFER_FROM_NEAR_COST: u128 = 36_500_000_000_000_000_000_000; // 365 x 10^20
 
 pub type Base64String = String;
@@ -91,6 +94,10 @@ impl Oracle {
     pub fn request(&mut self, payment: U128, spec_id: Base64String, callback_address: AccountId, callback_method: String, nonce: U128, data_version: U128, data: Base64String) {
         self._check_callback_address(&callback_address);
 
+        let used_gas = env::used_gas();
+        env::log(format!("Used gas in request: {:?}", used_gas).as_bytes());
+        env::log(format!("env::prepaid_gas() - SINGLE_CALL_GAS in request: {:?}", env::prepaid_gas() - SINGLE_CALL_GAS).as_bytes());
+
         // first transfer token
         let promise_transfer_tokens = env::promise_create(
             self.link_account.clone(),
@@ -120,7 +127,7 @@ impl Oracle {
                 "data": data
             }).to_string().as_bytes(),
             0,
-            SINGLE_CALL_GAS * 3
+            env::prepaid_gas() - SINGLE_CALL_GAS - env::used_gas()
         );
 
         env::promise_return(promise_call_self_request);
@@ -142,6 +149,9 @@ impl Oracle {
                 PromiseResult::NotReady => env::panic(b"The promise was not ready."),
             };
         }
+
+        let used_gas = env::used_gas();
+        env::log(format!("Used gas in store_request: {:?}", used_gas).as_bytes());
 
         // cast arguments in order to be formatted
         let payment_u128: u128 = payment.into();
@@ -205,7 +215,12 @@ impl Oracle {
               account =>
                 nonce => { Request }
             */
-            let mut nonce_request = self.requests.get(&sender).unwrap_or_default();
+            let nonce_request_entry = self.requests.get(&sender);
+            let mut nonce_request = if nonce_request_entry.is_none() {
+                TreeMap::new(sender.clone().into_bytes())
+            } else {
+                nonce_request_entry.unwrap()
+            };
             nonce_request.insert(&nonce_u128, &oracle_request);
             self.requests.insert(&sender.clone(), &nonce_request);
             env::log(format!("Inserted commitment with\nKey: {:?}\nValue: {:?}", nonce_u128.clone(), oracle_request.clone()).as_bytes());
@@ -284,7 +299,8 @@ impl Oracle {
                 "nonce": nonce
             }).to_string().as_bytes(),
             0,
-            SINGLE_CALL_GAS * 4 // TODO: futz
+            SINGLE_CALL_GAS
+            // SINGLE_CALL_GAS * 4 // TODO: futz
         );
 
         env::promise_return(promise_post_callback);
@@ -395,7 +411,7 @@ impl Oracle {
     }
 
     /// Get up to first 65K accounts that have their own associated nonces => requests
-    pub fn get_requests_summary(&self, max_num_accounts: U64) -> String {
+    pub fn get_requests_summary(&self, max_num_accounts: U64) -> Vec<SummaryJSON> {
         let mut counter: u64 = 0;
         let max_num_accounts_u64: u64 = max_num_accounts.into();
         let mut result: Vec<SummaryJSON> = Vec::with_capacity(max_num_accounts_u64 as usize);
@@ -404,10 +420,10 @@ impl Oracle {
             self._request_summary_iterate(&max_num_accounts_u64, req, &mut result, &mut counter);
         }
 
-        serde_json::to_string(&result).unwrap()
+        result
     }
 
-    pub fn get_requests_summary_from(&self, from_account: AccountId, max_num_accounts: U64) -> String {
+    pub fn get_requests_summary_from(&self, from_account: AccountId, max_num_accounts: U64) -> Vec<SummaryJSON> {
         let mut counter: u64 = 0;
         let max_num_accounts_u64: u64 = max_num_accounts.into();
         let mut result: Vec<SummaryJSON> = Vec::with_capacity(max_num_accounts_u64 as usize);
@@ -416,7 +432,7 @@ impl Oracle {
             self._request_summary_iterate(&max_num_accounts_u64, req, &mut result, &mut counter);
         }
 
-        serde_json::to_string(&result).unwrap()
+        result
     }
 
     /// Helper function while iterating through request summaries
@@ -434,7 +450,7 @@ impl Oracle {
         *counter += 1;
     }
 
-    pub fn get_requests(&self, account: AccountId, max_requests: U64) -> String {
+    pub fn get_requests(&self, account: AccountId, max_requests: U64) -> Vec<RequestsJSON> {
         let max_requests_u64: u64 = max_requests.into();
         if !self.requests.contains_key(&account) {
             env::panic(format!("Account {} has no requests.", account).as_bytes());
@@ -447,7 +463,7 @@ impl Oracle {
             self._request_iterate(&max_requests_u64, req, &mut result, &mut counter);
         }
 
-        serde_json::to_string(&result).unwrap()
+        result
     }
 
     /// Helper function while iterating through account requests
@@ -463,6 +479,35 @@ impl Oracle {
         });
 
         *counter += 1;
+    }
+
+    pub fn get_all_requests(&self, max_num_accounts: U64, max_requests: U64) -> HashMap<AccountId, Vec<RequestsJSON>> {
+        let max_requests_u64: u64 = max_requests.into();
+        let max_num_accounts_u64: u64 = max_num_accounts.into();
+        let mut account_counter: u64 = 0;
+        let mut result: HashMap<AccountId, Vec<RequestsJSON>> = HashMap::new();
+
+        for account_requests in self.requests.iter() {
+            if account_counter == max_num_accounts_u64 || account_counter > self.requests.len() {
+                break
+            }
+            let mut requests: Vec<RequestsJSON> = Vec::new();
+            let mut request_counter: u64 = 0;
+            for nonce_request in account_requests.1.iter() {
+                if request_counter == max_requests_u64 || request_counter > account_requests.1.len() {
+                    break
+                }
+                let req = RequestsJSON {
+                    nonce: U128(nonce_request.0),
+                    request: nonce_request.1
+                };
+                requests.push(req);
+                request_counter += 1;
+            }
+            result.insert(account_requests.0.clone(), requests);
+            account_counter += 1;
+        }
+        result
     }
 
     pub fn get_all_commitments(&self) -> Vec<(Vec<u8>, Vec<u8>)> {
