@@ -184,37 +184,15 @@ impl Oracle {
     }
 
     /// Note that the request_id here is String instead of Vec<u8> as might be expected from the Solidity contract
-    pub fn fulfill_request(&mut self, account: AccountId, payment: U128, callback_address: AccountId, callback_method: String, data: Base64String) {
+    /// TODO: after demo, use the below
+    // pub fn fulfill_request(&mut self, account: AccountId, payment: U128, callback_address: AccountId, callback_method: String, data: Base64String) {
+    pub fn fulfill_request(&mut self, account: AccountId, nonce: U128, payment: U128, callback_address: AccountId, callback_method: String, expiration: U64, data: Base64String) {
         self._only_authorized_node();
 
         // TODO: this is probably going to be too low at first, adjust
         assert!(env::prepaid_gas() - env::used_gas() > MINIMUM_CONSUMER_GAS_LIMIT, "Must provide consumer enough gas");
 
-        // pay oracle node the payment
-        let promise_pay_oracle_node = env::promise_create(
-            self.link_account.clone(),
-            b"transfer",
-            json!({
-                "owner_id": env::current_account_id(),
-                "new_owner_id": env::predecessor_account_id(),
-                "amount": payment,
-            }).to_string().as_bytes(),
-            0,
-            SINGLE_CALL_GAS,
-        );
-
-        let promise_post_oracle_payment = env::promise_then(
-            promise_pay_oracle_node,
-            env::current_account_id(),
-            b"fulfillment_post_oracle_payment",
-            &[],
-            0,
-            SINGLE_CALL_GAS
-        );
-
-        // TODO: seems as though the process isn't halted here, move these to callbacks
-        let promise_perform_callback = env::promise_then(
-            promise_post_oracle_payment,
+        let promise_perform_callback = env::promise_create(
             callback_address,
             callback_method.as_bytes(),
             json!({
@@ -238,20 +216,6 @@ impl Oracle {
         env::promise_return(promise_post_callback);
     }
 
-    pub fn fulfillment_post_oracle_payment(&mut self) {
-        self._only_owner_predecessor();
-        // TODO: fix this "if" workaround until I can figure out how to write tests with promises
-        if cfg!(target_arch = "wasm32") {
-            assert_eq!(env::promise_results_count(), 1);
-            // ensure successful promise, meaning tokens are transferred
-            match env::promise_result(0) {
-                PromiseResult::Successful(_) => {},
-                PromiseResult::Failed => env::panic(b"(fulfillment_post_oracle_payment) The promise failed. See receipt failures."),
-                PromiseResult::NotReady => env::panic(b"The promise was not ready."),
-            };
-        }
-    }
-
     pub fn fulfillment_post_callback(&mut self, account: AccountId) {
         self._only_owner_predecessor();
         // TODO: fix this "if" workaround until I can figure out how to write tests with promises
@@ -266,7 +230,7 @@ impl Oracle {
         }
         // Remove request from state
         self.requests.remove(&account);
-        env::log(b"Commitment that has completed successfully and been removed.")
+        env::log(b"Request has completed successfully and been removed.")
     }
 
     pub fn is_authorized(&self, node: AccountId) -> bool {
@@ -656,6 +620,9 @@ mod tests {
         // fulfill request
         let context = get_context(bob(), env::storage_usage());
         testing_env!(context);
-        contract.fulfill_request(alice(), payment, callback_address, callback_method, data);
+        // TODO: after demo, use the below
+        // contract.fulfill_request(alice(), payment, callback_address, callback_method, data);
+        let expiration = U64(contract.requests.get(&alice()).unwrap().get(&nonce).unwrap().expiration);
+        contract.fulfill_request(alice(), 1.into(), payment, callback_address, callback_method, expiration, data);
     }
 }
