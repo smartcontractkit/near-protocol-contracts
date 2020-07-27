@@ -184,17 +184,27 @@ impl Oracle {
     }
 
     /// Note that the request_id here is String instead of Vec<u8> as might be expected from the Solidity contract
-    /// TODO: after demo, use the below
-    // pub fn fulfill_request(&mut self, account: AccountId, payment: U128, callback_address: AccountId, callback_method: String, data: Base64String) {
-    pub fn fulfill_request(&mut self, account: AccountId, nonce: U128, payment: U128, callback_address: AccountId, callback_method: String, expiration: U64, data: Base64String) {
+    pub fn fulfill_request(&mut self, account: AccountId, nonce: U128, data: Base64String) {
         self._only_authorized_node();
 
         // TODO: this is probably going to be too low at first, adjust
         assert!(env::prepaid_gas() - env::used_gas() > MINIMUM_CONSUMER_GAS_LIMIT, "Must provide consumer enough gas");
 
+        // Get the request
+        let account_key = self.requests.get(&account);
+        if account_key.is_none() {
+            env::panic(b"Did not find the account to fulfill.");
+        }
+        let nonce_u128: u128 = nonce.into();
+        let request_option = account_key.unwrap().get(&nonce_u128);
+        if request_option.is_none() {
+            env::panic(b"Did not find the account to fulfill.");
+        }
+        let request = request_option.unwrap();
+
         let promise_perform_callback = env::promise_create(
-            callback_address,
-            callback_method.as_bytes(),
+            request.callback_address,
+            request.callback_method.as_bytes(),
             json!({
                 "price": data
             }).to_string().as_bytes(),

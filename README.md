@@ -29,10 +29,10 @@ Create a NEAR testnet account with [Wallet](https://wallet.testnet.near.org).
 Create a subaccounts in this fashion:
 
 ```bash
-near create_account oracle.$NEAR_ACCT --masterAccount $NEAR_ACCT
-near create_account client.$NEAR_ACCT --masterAccount $NEAR_ACCT
-near create_account oracle-node.$NEAR_ACCT --masterAccount $NEAR_ACCT
-near create_account near-link.$NEAR_ACCT --masterAccount $NEAR_ACCT
+near create-account oracle.$NEAR_ACCT --masterAccount $NEAR_ACCT
+near create-account client.$NEAR_ACCT --masterAccount $NEAR_ACCT
+near create-account oracle-node.$NEAR_ACCT --masterAccount $NEAR_ACCT
+near create-account near-link.$NEAR_ACCT --masterAccount $NEAR_ACCT
 ```
 
 **Oracle client** will call the **oracle contract** to make a request for external data.
@@ -160,12 +160,6 @@ The previous command (calling the method `get_requests_summary`) is useful if th
 near view oracle.$NEAR_ACCT get_requests '{"account": "client.'$NEAR_ACCT'", "max_requests": "10"}'
 ```
 
-Or if you have [jq installed](https://stedolan.github.io/jq/) you may use:
-
-```bash
-near view oracle.$NEAR_ACCT get_requests '{"account": "client.'$NEAR_ACCT'", "max_requests": "10"}' | tail -n 1 | sed "s/.\[32m'//g; s/'.\[39m//g" | jq
-```
-
 It sees the `data` is `QkFU` which is the Base64-encoded string for `BAT`, the token to look up. The **oracle node** presumably makes a call to an exchange to gather the price of Basic Attention Token (BAT) and finds it is at \$0.19 per token.
 The data `0.19` as a Vec<u8> is `MTkuMQ==`
 
@@ -180,7 +174,7 @@ Copy the `expiration` from the above output and paste it below accordingly, repl
 **Oracle node** uses its NEAR account keys to fulfill the request:
 
 ```bash
-near call oracle.$NEAR_ACCT fulfill_request '{"account": "client.'$NEAR_ACCT'", "nonce": "1", "payment": "10", "callback_address": "client.'$NEAR_ACCT'", "callback_method": "token_price_callback", "expiration": "EXPIRATION_COPIED_VALUE", "data": "MTkuMQ=="}' --accountId oracle-node.$NEAR_ACCT --gas 300000000000000
+near call oracle.$NEAR_ACCT fulfill_request '{"account": "client.'$NEAR_ACCT'", "nonce": "1", "data": "MTkuMQ=="}' --accountId oracle-node.$NEAR_ACCT --gas 300000000000000
 ```
 
 (Optional) Check the balance of **oracle client**:
