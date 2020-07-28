@@ -179,8 +179,6 @@ impl Oracle {
         nonce_request.insert(&nonce_u128, &oracle_request);
         self.requests.insert(&sender.clone(), &nonce_request);
         env::log(format!("Inserted request with\nKey: {:?}\nValue: {:?}", nonce_u128.clone(), oracle_request.clone()).as_bytes());
-
-        self.withdrawable_tokens += payment_u128;
     }
 
     /// Note that the request_id here is String instead of Vec<u8> as might be expected from the Solidity contract
@@ -242,10 +240,12 @@ impl Oracle {
         // Remove request from state
         let mut requests_per_account = self.requests.get(&account).unwrap();
         let nonce_u128: u128 = nonce.into();
+        let payment = requests_per_account.get(&nonce_u128).unwrap().payment;
         requests_per_account.remove(&nonce_u128);
         // Must overwrite the new TreeMap with the account key
         self.requests.insert(&account, &requests_per_account);
-        env::log(b"Request has completed successfully and been removed.")
+        env::log(b"Request has completed successfully and been removed.");
+        self.withdrawable_tokens += payment;
     }
 
     pub fn is_authorized(&self, node: AccountId) -> bool {
