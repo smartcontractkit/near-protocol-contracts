@@ -217,7 +217,8 @@ impl Oracle {
             env::current_account_id(),
             b"fulfillment_post_callback",
             json!({
-                "account": account
+                "account": account,
+                "nonce": nonce
             }).to_string().as_bytes(),
             0,
             SINGLE_CALL_GAS
@@ -226,7 +227,7 @@ impl Oracle {
         env::promise_return(promise_post_callback);
     }
 
-    pub fn fulfillment_post_callback(&mut self, account: AccountId) {
+    pub fn fulfillment_post_callback(&mut self, account: AccountId, nonce: U128) {
         self._only_owner_predecessor();
         // TODO: fix this "if" workaround until I can figure out how to write tests with promises
         if cfg!(target_arch = "wasm32") {
@@ -239,7 +240,11 @@ impl Oracle {
             };
         }
         // Remove request from state
-        self.requests.remove(&account);
+        let mut requests_per_account = self.requests.get(&account).unwrap();
+        let nonce_u128: u128 = nonce.into();
+        requests_per_account.remove(&nonce_u128);
+        // Must overwrite the new TreeMap with the account key
+        self.requests.insert(&account, &requests_per_account);
         env::log(b"Request has completed successfully and been removed.")
     }
 
@@ -630,9 +635,6 @@ mod tests {
         // fulfill request
         let context = get_context(bob(), env::storage_usage());
         testing_env!(context);
-        // TODO: after demo, use the below
-        // contract.fulfill_request(alice(), payment, callback_address, callback_method, data);
-        let expiration = U64(contract.requests.get(&alice()).unwrap().get(&nonce).unwrap().expiration);
-        contract.fulfill_request(alice(), 1.into(), payment, callback_address, callback_method, expiration, data);
+        contract.fulfill_request(alice(), 1.into(), data);
     }
 }
