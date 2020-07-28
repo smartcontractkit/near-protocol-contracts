@@ -61,10 +61,8 @@ near deploy --accountId oracle.$NEAR_ACCT --wasmFile oracle/res/oracle.wasm --in
 
 Oracle client
 
-This contract is very bare-bones and does not need an initializing call with `new`
-
 ```bash
-near deploy --accountId client.$NEAR_ACCT --wasmFile client/res/client.wasm
+near deploy --accountId client.$NEAR_ACCT --wasmFile client/res/client.wasm --initFunction new --initArgs '{"oracle_account": "oracle.'$NEAR_ACCT'"}'
 ```
 
 ## Give fungible tokens and set allowances
@@ -95,10 +93,18 @@ near call near-link.$NEAR_ACCT inc_allowance '{"escrow_account_id": "oracle.'$NE
 near view near-link.$NEAR_ACCT get_allowance '{"owner_id": "client.'$NEAR_ACCT'", "escrow_account_id": "oracle.'$NEAR_ACCT'"}'
 ```
 
-**Oracle client** makes a request to **oracle contract** with payment of 10 NEAR LINK:
+We'll show two ways to have the client contract send the oracle contract a request. First, we'll directly call the oracle contract using the key pair from the client contract.
+
+1. **Oracle client** makes a request to **oracle contract** with payment of 10 NEAR LINK:
 
 ```bash
 near call oracle.$NEAR_ACCT request '{"payment": "10", "spec_id": "dW5pcXVlIHNwZWMgaWQ=", "callback_address": "client.'$NEAR_ACCT'", "callback_method": "token_price_callback", "nonce": "1", "data_version": "1", "data": "QkFU"}' --accountId client.$NEAR_ACCT --gas 300000000000000
+```
+
+2. (For demo purposes) **Any NEAR account** calls the **oracle client** contract, providing a symbol. Upon receiving this, the **oracle client** sends a cross-contract call to the **oracle contract** to store the request. (Payment and other values are hardcoded here, the nonce is automatically incremented. This assumes that the **oracle client** contract only wants to use one oracle contract.)
+
+```bash
+near call client.$NEAR_ACCT demo_token_price '{"symbol": "QkFU"}' --accountId client.$NEAR_ACCT --gas 300000000000000
 ```
 
 Before the **oracle node** can fulfill the request, they must be authorized.
