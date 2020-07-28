@@ -169,8 +169,6 @@ There's a third method to get all the requests, ordered by account name and nonc
 near view oracle.$NEAR_ACCT get_all_requests '{"max_num_accounts": "100", "max_requests": "100"}'
 ```
 
-Copy the `expiration` from the above output and paste it below accordingly, replacing `EXPIRATION_COPIED_VALUE`.
-
 **Oracle node** uses its NEAR account keys to fulfill the request:
 
 ```bash
