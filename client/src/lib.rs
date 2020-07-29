@@ -1,8 +1,10 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_sdk::{env, ext_contract, near_bindgen, AccountId};
+use near_sdk::collections::TreeMap;
 use base64::{decode};
 use std::str;
 use near_sdk::json_types::U128;
+use std::collections::HashMap;
 
 #[global_allocator]
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
@@ -22,6 +24,7 @@ struct ClientContract {
     // There's no reason why client contracts can't call various oracle contracts.
     oracle_account: AccountId,
     nonce: u128,
+    received: TreeMap<u128, String>,
 }
 
 impl Default for ClientContract {
@@ -32,23 +35,21 @@ impl Default for ClientContract {
 
 #[near_bindgen]
 impl ClientContract {
+    #[allow(dead_code)]
     #[init]
     pub fn new(oracle_account: AccountId) -> Self {
         Self {
             oracle_account,
             nonce: 0,
+            received: TreeMap::new(b"r".to_vec()),
         }
     }
 
-    /*
-fn request(&mut self, payment: U128, spec_id: Base64String, callback_address: AccountId, callback_method: String, nonce: U128, data_version: U128, data: Base64String);
-     */
-
     /// symbol: Base64-encoded token symbol
-    pub fn demo_token_price(&mut self, symbol: String) {
+    #[allow(dead_code)] // This function gets called from the oracle
+    pub fn demo_token_price(&mut self, symbol: String, spec_id: Base64String) {
         // For the sake of demo, a few hardcoded values
         let payment = U128(10);
-        let spec_id: Base64String = "dW5pcXVlIHNwZWMgaWQ=".to_string();
         let nonce: U128 = self.nonce.into();
         self.nonce += 1;
 
@@ -56,8 +57,8 @@ fn request(&mut self, payment: U128, spec_id: Base64String, callback_address: Ac
     }
     
     #[allow(dead_code)] // This function gets called from the oracle
-    pub fn token_price_callback(&mut self, price: Base64String) {
-        let base64_price = match str::from_utf8(price.as_bytes()) {
+    pub fn token_price_callback(&mut self, nonce: U128, answer: Base64String) {
+        let base64_price = match str::from_utf8(answer.as_bytes()) {
             Ok(val) => val,
             Err(_) => env::panic(b"Invalid UTF-8 sequence provided from oracle contract."),
         };
@@ -67,5 +68,22 @@ fn request(&mut self, payment: U128, spec_id: Base64String, callback_address: Ac
             Err(_) => env::panic(b"Invalid UTF-8 sequence in Base64 decoded value."),
         };
         env::log(format!("Client contract received price: {:?}", price_readable).as_bytes());
+        self.received.insert(&nonce.0, &price_readable.to_string());
+    }
+
+    // using String instead of U128 because
+    // the trait `std::cmp::Eq` is not implemented for `near_sdk::json_types::integers::U128`
+    #[allow(dead_code)]
+    pub fn get_received_vals(&self, max: U128) -> HashMap<String, String> {
+        let mut counter: u128 = 0;
+        let mut result: HashMap<String, String> = HashMap::new();
+        for answer in self.received.iter() {
+            if counter == max.0 || counter > self.received.len() as u128 {
+                break;
+            }
+            result.insert(answer.0.to_string(), answer.1);
+            counter += 1;
+        }
+        result
     }
 }
