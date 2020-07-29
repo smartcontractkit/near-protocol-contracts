@@ -65,6 +65,20 @@ Oracle client
 near deploy --accountId client.$NEAR_ACCT --wasmFile client/res/client.wasm --initFunction new --initArgs '{"oracle_account": "oracle.'$NEAR_ACCT'"}'
 ```
 
+## Minor housekeeping
+
+Before the **oracle node** can fulfill the request, they must be authorized. We might as well do this from the get-go.
+
+```bash
+near call oracle.$NEAR_ACCT add_authorization '{"node": "oracle-node.'$NEAR_ACCT'"}' --accountId oracle.$NEAR_ACCT
+```
+
+(Optional) Check authorization to confirm:
+
+```bash
+near view oracle.$NEAR_ACCT is_authorized '{"node": "oracle-node.'$NEAR_ACCT'"}'
+```
+
 ## Give fungible tokens and set allowances
 
 Give 50 NEAR LINK to client:
@@ -104,19 +118,7 @@ near call oracle.$NEAR_ACCT request '{"payment": "10", "spec_id": "dW5pcXVlIHNwZ
 2. (For demo purposes) **Any NEAR account** calls the **oracle client** contract, providing a symbol. Upon receiving this, the **oracle client** sends a cross-contract call to the **oracle contract** to store the request. (Payment and other values are hardcoded here, the nonce is automatically incremented. This assumes that the **oracle client** contract only wants to use one oracle contract.)
 
 ```bash
-near call client.$NEAR_ACCT demo_token_price '{"symbol": "QkFU"}' --accountId client.$NEAR_ACCT --gas 300000000000000
-```
-
-Before the **oracle node** can fulfill the request, they must be authorized.
-
-```bash
-near call oracle.$NEAR_ACCT add_authorization '{"node": "oracle-node.'$NEAR_ACCT'"}' --accountId oracle.$NEAR_ACCT
-```
-
-(Optional) Check authorization to confirm:
-
-```bash
-near view oracle.$NEAR_ACCT is_authorized '{"node": "oracle-node.'$NEAR_ACCT'"}'
+near call client.$NEAR_ACCT demo_token_price '{"symbol": "QkFU", "spec_id": "dW5pcXVlIHNwZWMgaWQ="}' --accountId client.$NEAR_ACCT --gas 300000000000000
 ```
 
 Oracle node is polling the state of **oracle contract** to see paginated request _summary_, which shows which accounts have requests pending and how many total are pending:
@@ -179,6 +181,12 @@ near view oracle.$NEAR_ACCT get_all_requests '{"max_num_accounts": "100", "max_r
 
 ```bash
 near call oracle.$NEAR_ACCT fulfill_request '{"account": "client.'$NEAR_ACCT'", "nonce": "1", "data": "MTkuMQ=="}' --accountId oracle-node.$NEAR_ACCT --gas 300000000000000
+```
+
+(Optional) Check the **oracle client** for the values it has saved:
+
+```bash
+near view client.$NEAR_ACCT get_received_vals '{"max": "100"}'
 ```
 
 (Optional) Check the balance of **oracle client**:
