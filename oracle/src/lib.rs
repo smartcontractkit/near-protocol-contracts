@@ -189,12 +189,12 @@ impl Oracle {
         assert!(env::prepaid_gas() - env::used_gas() > MINIMUM_CONSUMER_GAS_LIMIT, "Must provide consumer enough gas");
 
         // Get the request
-        let account_key = self.requests.get(&account);
-        if account_key.is_none() {
+        let account_requests = self.requests.get(&account);
+        if account_requests.is_none() {
             env::panic(b"Did not find the account to fulfill.");
         }
         let nonce_u128: u128 = nonce.into();
-        let request_option = account_key.unwrap().get(&nonce_u128);
+        let request_option = account_requests.unwrap().get(&nonce_u128);
         if request_option.is_none() {
             env::panic(b"Did not find the account to fulfill.");
         }
@@ -204,7 +204,8 @@ impl Oracle {
             request.callback_address,
             request.callback_method.as_bytes(),
             json!({
-                "price": data
+                "nonce": nonce.clone(),
+                "answer": data
             }).to_string().as_bytes(),
             0,
             SINGLE_CALL_GAS
@@ -238,12 +239,12 @@ impl Oracle {
             };
         }
         // Remove request from state
-        let mut requests_per_account = self.requests.get(&account).unwrap();
+        let mut account_requests = self.requests.get(&account).unwrap();
         let nonce_u128: u128 = nonce.into();
-        let payment = requests_per_account.get(&nonce_u128).unwrap().payment;
-        requests_per_account.remove(&nonce_u128);
+        let payment = account_requests.get(&nonce_u128).unwrap().payment;
+        account_requests.remove(&nonce_u128);
         // Must overwrite the new TreeMap with the account key
-        self.requests.insert(&account, &requests_per_account);
+        self.requests.insert(&account, &account_requests);
         env::log(b"Request has completed successfully and been removed.");
         self.withdrawable_tokens += payment;
     }
@@ -452,7 +453,8 @@ impl Oracle {
     }
 
     fn _check_callback_address(&mut self, callback_address: &AccountId) {
-        assert!(callback_address != &self.link_account, "Cannot callback to LINK.")
+        assert_ne!(callback_address, &self.link_account, "Cannot callback to LINK.");
+        assert_ne!(callback_address, env::current_account_id(), "Callback address cannot be the oracle contract.");
     }
 
     /// This method is not compile to the smart contract. It is used in tests only.
