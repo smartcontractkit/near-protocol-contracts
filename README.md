@@ -6,7 +6,7 @@ The components of this oracle system are:
 
 - Oracle client (Alice's contract that wants a token price from an off-chain API)  
 - Oracle contract (Bob's contract that accepts a fungible token payment and stores a request to be processed off-chain)
-- Oracle node (Bob's off-chain machine polling the oracle contract on NEAR. This could be a built-out Chainlink node or a simple NodeJS app that polls the RPC and returns answers. **Note**: code for the oracle node is not included in this repository.)
+- Oracle node (Bob's off-chain machine polling the oracle contract on NEAR, and fulfilling requests. **Note**: code for the oracle node is not included in this repository, but one can use an oracle protocol like Chainlink.)
 - Fungible token (The token paid by Alice to Bob in exchange for getting an answer to her request)
 
 ![Chainlink and NEAR diagram](assets/near-chainlink-diagram-v1.png)
