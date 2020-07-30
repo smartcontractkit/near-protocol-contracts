@@ -196,7 +196,7 @@ impl Oracle {
         let nonce_u128: u128 = nonce.into();
         let request_option = account_requests.unwrap().get(&nonce_u128);
         if request_option.is_none() {
-            env::panic(b"Did not find the account to fulfill.");
+            env::panic(b"Did not find the request (nonce) to fulfill.");
         }
         let request = request_option.unwrap();
 
