@@ -1,2 +1,3 @@
 #!/bin/bash
+
 near deploy --accountId near-link.$NEAR_ACCT --wasmFile res/near_link_token.wasm

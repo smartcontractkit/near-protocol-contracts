@@ -1,2 +1,0 @@
-#!/bin/bash
-near call oracle.$NEAR_ACCT reset --accountId oracle.$NEAR_ACCT

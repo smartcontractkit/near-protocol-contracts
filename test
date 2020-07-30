@@ -1,0 +1,5 @@
+#!/bin/bash
+
+cd near-link-token && ./scripts/test && cd ..
+cd oracle && ./scripts/test && cd ..
+cd client && ./scripts/test && cd ..

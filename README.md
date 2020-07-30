@@ -6,7 +6,7 @@ The components of this oracle system are:
 
 - Oracle client (Alice's contract that wants a token price from an off-chain API)  
 - Oracle contract (Bob's contract that accepts a fungible token payment and stores a request to be processed off-chain)
-- Oracle node (Bob's off-chain machine polling the oracle contract on NEAR. This could be a built-out Chainlink node or a simple NodeJS app that polls the RPC and returns answers. **Note**: code for the oracle node is not included in this repository.)
+- Oracle node (Bob's off-chain machine polling the oracle contract on NEAR, and fulfilling requests. **Note**: code for the oracle node is not included in this repository, but one can use an oracle protocol like Chainlink.)
 - Fungible token (The token paid by Alice to Bob in exchange for getting an answer to her request)
 
 ![Chainlink and NEAR diagram](assets/near-chainlink-diagram-v1.png)
@@ -77,7 +77,13 @@ Let's begin!
 Build the oracle, client, and NEAR LINK contracts with:
 
 ```bash
-./build_all.sh
+./build
+```
+
+Run all tests:
+
+```bash
+./test
 ```
 
 Then deploy and instantiate like so…
@@ -152,7 +158,7 @@ We'll show two ways to have the client contract send the oracle contract a reque
 near call oracle.$NEAR_ACCT request '{"payment": "10", "spec_id": "dW5pcXVlIHNwZWMgaWQ=", "callback_address": "client.'$NEAR_ACCT'", "callback_method": "token_price_callback", "nonce": "1", "data_version": "1", "data": "QkFU"}' --accountId client.$NEAR_ACCT --gas 300000000000000
 ```
 
-2. **Any NEAR account** calls the **oracle client** contract, providing a symbol. Upon receiving this, the **oracle client** sends a cross-contract call to the **oracle contract** to store the request. (Payment and other values are hardcoded here, the nonce is automatically incremented. This assumes that the **oracle client** contract only wants to use one oracle contract.)
+2. **Any NEAR account** calls the **oracle client** contract, providing request arguments. Upon receiving this, the **oracle client** sends a cross-contract call to the **oracle contract** to store the request. (Payment and other values are hardcoded here, the nonce is automatically incremented. This assumes that the **oracle client** contract only wants to use one oracle contract.)
 
 ```bash
 near call client.$NEAR_ACCT demo_token_price '{"symbol": "QkFU", "spec_id": "dW5pcXVlIHNwZWMgaWQ="}' --accountId client.$NEAR_ACCT --gas 300000000000000
@@ -175,8 +181,73 @@ curl -d '{"jsonrpc": "2.0", "method": "query", "id": "chainlink", "params": {"re
 ```
 
 The above will return something like:
+
 ```json
-{"jsonrpc":"2.0","result":{"result":[91,123,34,97,99,99,111,117,110,116,34,58,34,99,108,105,101,110,116,46,100,101,109,111,46,116,101,115,116,110,101,116,34,44,34,116,111,116,97,108,95,114,101,113,117,101,115,116,115,34,58,49,125,93],"logs":[],"block_height":10551293,"block_hash":"Ljh67tYk5bGXPu9TamJNG4vHp18cEBDxebKHpEUeZEo"},"id":"chainlink"}
+{
+  "jsonrpc": "2.0",
+  "result": {
+    "result": [
+      91,
+      123,
+      34,
+      97,
+      99,
+      99,
+      111,
+      117,
+      110,
+      116,
+      34,
+      58,
+      34,
+      99,
+      108,
+      105,
+      101,
+      110,
+      116,
+      46,
+      100,
+      101,
+      109,
+      111,
+      46,
+      116,
+      101,
+      115,
+      116,
+      110,
+      101,
+      116,
+      34,
+      44,
+      34,
+      116,
+      111,
+      116,
+      97,
+      108,
+      95,
+      114,
+      101,
+      113,
+      117,
+      101,
+      115,
+      116,
+      115,
+      34,
+      58,
+      49,
+      125,
+      93
+    ],
+    "logs": [],
+    "block_height": 10551293,
+    "block_hash": "Ljh67tYk5bGXPu9TamJNG4vHp18cEBDxebKHpEUeZEo"
+  },
+  "id": "chainlink"
+}
 ```
 
 We'll outline a quick way to see the results if the machine has [Python installed](https://docs.python-guide.org/starting/install3/osx/). Copy the value of the innermost `result` key, which is an array of unsigned 8-bit integers.
