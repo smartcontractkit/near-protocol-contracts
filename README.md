@@ -29,10 +29,10 @@ Create a NEAR testnet account with [Wallet](https://wallet.testnet.near.org).
 Create a subaccounts in this fashion:
 
 ```bash
-near create_account oracle.$NEAR_ACCT --masterAccount $NEAR_ACCT
-near create_account client.$NEAR_ACCT --masterAccount $NEAR_ACCT
-near create_account oracle-node.$NEAR_ACCT --masterAccount $NEAR_ACCT
-near create_account near-link.$NEAR_ACCT --masterAccount $NEAR_ACCT
+near create-account oracle.$NEAR_ACCT --masterAccount $NEAR_ACCT
+near create-account client.$NEAR_ACCT --masterAccount $NEAR_ACCT
+near create-account oracle-node.$NEAR_ACCT --masterAccount $NEAR_ACCT
+near create-account near-link.$NEAR_ACCT --masterAccount $NEAR_ACCT
 ```
 
 **Oracle client** will call the **oracle contract** to make a request for external data.
@@ -50,23 +50,33 @@ Then deploy and instantiate like so…
 NEAR LINK
 
 ```bash
-near deploy --accountId near-link.$NEAR_ACCT --wasmFile near-link-token/res/near_link_token.wasm
-near call near-link.$NEAR_ACCT new '{"owner_id": "near-link.'$NEAR_ACCT'", "total_supply": "1000000"}' --accountId near-link.$NEAR_ACCT
+near deploy --accountId near-link.$NEAR_ACCT --wasmFile near-link-token/res/near_link_token.wasm --initFunction new --initArgs '{"owner_id": "near-link.'$NEAR_ACCT'", "total_supply": "1000000"}'
 ```
 
 Oracle contract
 
 ```bash
-near deploy --accountId oracle.$NEAR_ACCT --wasmFile oracle/res/oracle.wasm
-near call oracle.$NEAR_ACCT new '{"link_id": "near-link.'$NEAR_ACCT'", "owner_id": "oracle.'$NEAR_ACCT'"}' --accountId oracle.$NEAR_ACCT
+near deploy --accountId oracle.$NEAR_ACCT --wasmFile oracle/res/oracle.wasm --initFunction new --initArgs '{"link_id": "near-link.'$NEAR_ACCT'", "owner_id": "oracle.'$NEAR_ACCT'"}'
 ```
 
 Oracle client
 
-This contract is very bare-bones and does not need an initializing call with `new`
+```bash
+near deploy --accountId client.$NEAR_ACCT --wasmFile client/res/client.wasm --initFunction new --initArgs '{"oracle_account": "oracle.'$NEAR_ACCT'"}'
+```
+
+## Minor housekeeping
+
+Before the **oracle node** can fulfill the request, they must be authorized. We might as well do this from the get-go.
 
 ```bash
-near deploy --accountId client.$NEAR_ACCT --wasmFile client/res/client.wasm
+near call oracle.$NEAR_ACCT add_authorization '{"node": "oracle-node.'$NEAR_ACCT'"}' --accountId oracle.$NEAR_ACCT
+```
+
+(Optional) Check authorization to confirm:
+
+```bash
+near view oracle.$NEAR_ACCT is_authorized '{"node": "oracle-node.'$NEAR_ACCT'"}'
 ```
 
 ## Give fungible tokens and set allowances
@@ -97,22 +107,18 @@ near call near-link.$NEAR_ACCT inc_allowance '{"escrow_account_id": "oracle.'$NE
 near view near-link.$NEAR_ACCT get_allowance '{"owner_id": "client.'$NEAR_ACCT'", "escrow_account_id": "oracle.'$NEAR_ACCT'"}'
 ```
 
-**Oracle client** makes a request to **oracle contract** with payment of 10 NEAR LINK:
+We'll show two ways to have the client contract send the oracle contract a request. First, we'll directly call the oracle contract using the key pair from the client contract.
+
+1. **Oracle client** makes a request to **oracle contract** with payment of 10 NEAR LINK:
 
 ```bash
 near call oracle.$NEAR_ACCT request '{"payment": "10", "spec_id": "dW5pcXVlIHNwZWMgaWQ=", "callback_address": "client.'$NEAR_ACCT'", "callback_method": "token_price_callback", "nonce": "1", "data_version": "1", "data": "QkFU"}' --accountId client.$NEAR_ACCT --gas 300000000000000
 ```
 
-Before the **oracle node** can fulfill the request, they must be authorized.
+2. (For demo purposes) **Any NEAR account** calls the **oracle client** contract, providing a symbol. Upon receiving this, the **oracle client** sends a cross-contract call to the **oracle contract** to store the request. (Payment and other values are hardcoded here, the nonce is automatically incremented. This assumes that the **oracle client** contract only wants to use one oracle contract.)
 
 ```bash
-near call oracle.$NEAR_ACCT add_authorization '{"node": "oracle-node.'$NEAR_ACCT'"}' --accountId oracle.$NEAR_ACCT
-```
-
-(Optional) Check authorization to confirm:
-
-```bash
-near view oracle.$NEAR_ACCT is_authorized '{"node": "oracle-node.'$NEAR_ACCT'"}'
+near call client.$NEAR_ACCT demo_token_price '{"symbol": "QkFU", "spec_id": "dW5pcXVlIHNwZWMgaWQ="}' --accountId client.$NEAR_ACCT --gas 300000000000000
 ```
 
 Oracle node is polling the state of **oracle contract** to see paginated request _summary_, which shows which accounts have requests pending and how many total are pending:
@@ -123,25 +129,64 @@ near view oracle.$NEAR_ACCT get_requests_summary '{"max_num_accounts": "10"}'
 
 **Note**: aside from `get_requests_summary` there is also `get_requests_summary_from`. Since the `TreeMap` data structure is ordered, the former will list the first N (`max_num_accounts`). Usage of `get_requests_summary_from` is for paging, providing a window of results to return. Please see function details for parameters and usage.
 
-The previous command is useful if there has been significant scaling from many client accounts/contracts. To see the individual requests for a particular user, use the following command:
+For folks who prefer to see a more low-level approach to hitting the RPC, here's the curl command:
+
+```bash
+curl -d '{"jsonrpc": "2.0", "method": "query", "id": "chainlink", "params": {"request_type": "call_function", "finality": "final", "account_id": "oracle.'$NEAR_ACCT'", "method_name": "get_requests_summary", "args_base64": "eyJtYXhfbnVtX2FjY291bnRzIjogIjEwIn0="}}' -H 'Content-Type: application/json' https://rpc.testnet.near.org
+```
+
+The above will return something like:
+```json
+{"jsonrpc":"2.0","result":{"result":[91,123,34,97,99,99,111,117,110,116,34,58,34,99,108,105,101,110,116,46,100,101,109,111,46,116,101,115,116,110,101,116,34,44,34,116,111,116,97,108,95,114,101,113,117,101,115,116,115,34,58,49,125,93],"logs":[],"block_height":10551293,"block_hash":"Ljh67tYk5bGXPu9TamJNG4vHp18cEBDxebKHpEUeZEo"},"id":"chainlink"}
+```
+
+We'll outline a quick way to see results if the machine has Python installed. Copy the value of the innermost `result` key, which is an array of unsigned 8-bit integers.
+
+Open the Python REPL with the command `python` and see the prompt. (It should take input after `>>>`)
+
+Enter the below replacing BYTE_ARRAY with the the result value (including the square brackets):
+
+```python
+res = BYTE_ARRAY
+```
+
+then
+
+```python
+''.join(chr(x) for x in res)
+```
+
+and python will print something like:
+
+```text
+'[{"account":"client.demo.testnet","total_requests":1}]'
+```
+
+The previous command (calling the method `get_requests_summary`) is useful if there has been significant scaling from many client accounts/contracts. To see the individual requests for a particular user, use the following command:
 
 ```bash
 near view oracle.$NEAR_ACCT get_requests '{"account": "client.'$NEAR_ACCT'", "max_requests": "10"}'
 ```
 
-Or if you have [jq installed](https://stedolan.github.io/jq/) you may use:
-
-```bash
-near view oracle.$NEAR_ACCT get_requests '{"account": "client.'$NEAR_ACCT'", "max_requests": "10"}' | tail -n 1 | sed "s/.\[32m'//g; s/'.\[39m//g" | jq
-```
-
 It sees the `data` is `QkFU` which is the Base64-encoded string for `BAT`, the token to look up. The **oracle node** presumably makes a call to an exchange to gather the price of Basic Attention Token (BAT) and finds it is at \$0.19 per token.
 The data `0.19` as a Vec<u8> is `MTkuMQ==`
+
+There's a third method to get all the requests, ordered by account name and nonce, where a specified maximum number of results is provided.
+
+```bash
+near view oracle.$NEAR_ACCT get_all_requests '{"max_num_accounts": "100", "max_requests": "100"}'
+```
 
 **Oracle node** uses its NEAR account keys to fulfill the request:
 
 ```bash
-near call oracle.$NEAR_ACCT fulfill_request '{"account": "client.'$NEAR_ACCT'", "nonce": "1", "payment": "10", "callback_address": "client.'$NEAR_ACCT'", "callback_method": "token_price_callback", "expiration": "1906293427246306700", "data": "MTkuMQ=="}' --accountId oracle-node.$NEAR_ACCT --gas 300000000000000
+near call oracle.$NEAR_ACCT fulfill_request '{"account": "client.'$NEAR_ACCT'", "nonce": "1", "data": "MTkuMQ=="}' --accountId oracle-node.$NEAR_ACCT --gas 300000000000000
+```
+
+(Optional) Check the **oracle client** for the values it has saved:
+
+```bash
+near view client.$NEAR_ACCT get_received_vals '{"max": "100"}'
 ```
 
 (Optional) Check the balance of **oracle client**:
@@ -175,10 +220,10 @@ near view near-link.$NEAR_ACCT get_balance '{"owner_id": "oracle.'$NEAR_ACCT'"}'
 near view near-link.$NEAR_ACCT get_balance '{"owner_id": "'$NEAR_ACCT'"}'
 ```
 
-Finally, withdraw the fungible tokens from the oracle contract into another account, the base account, who presumably owns both the oracle node and oracle contract.
+Finally, withdraw the fungible tokens from the oracle contract into the oracle node, the base account, who presumably owns both the oracle node and oracle contract.
 
 ```bash
-near call oracle.$NEAR_ACCT withdraw '{"recipient": "'$NEAR_ACCT'", "amount": "20"}' --accountId oracle.$NEAR_ACCT --gas 300000000000000
+near call oracle.$NEAR_ACCT withdraw '{"recipient": "oracle-node.'$NEAR_ACCT'", "amount": "10"}' --accountId oracle.$NEAR_ACCT --gas 300000000000000
 ```
 
 You may use the previous two `get_balance` view methods to confirm that the fungible tokens have indeed been withdrawn.

@@ -1,6 +1,6 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Serialize, Deserialize};
-use near_sdk::collections::{TreeMap, UnorderedSet, UnorderedMap};
+use near_sdk::collections::{TreeMap, UnorderedSet};
 use near_sdk::json_types::{U128, U64};
 use near_sdk::{AccountId, env, near_bindgen, PromiseResult};
 use serde_json::json;
@@ -50,17 +50,6 @@ pub struct Oracle {
     pub owner: AccountId,
     pub link_account: AccountId,
     pub withdrawable_tokens: u128,
-    pub commitments: UnorderedMap<Vec<u8>, Vec<u8>>,
-    // using HashMap instead of Map because Map won't serialize with serde
-    // TODO: don't use HashMap
-    /*
-        You should always implement pagination whenever you need multiple requests
-        With Map you can do to_vec() method that returns std collection which implements Serialize
-        Pagination:
-        https://github.com/near/near-sdk-rs/blob/6eb55728af508a070bd37fc206acbeddf35d43e8/near-sdk/src/collections/map.rs#L240
-        Pagination implementation:
-        https://github.com/near-examples/token-factory/blob/master/contracts/factory/src/lib.rs#L51
-    */
     pub requests: TreeMap<AccountId, TreeMap<u128, OracleRequest>>,
     pub authorized_nodes: UnorderedSet<AccountId>,
 }
@@ -83,7 +72,6 @@ impl Oracle {
             owner: owner_id,
             link_account: link_id,
             withdrawable_tokens: 0,
-            commitments: UnorderedMap::new(b"commitments".to_vec()),
             requests: TreeMap::new(b"requests".to_vec()),
             authorized_nodes: UnorderedSet::new(b"authorized_nodes".to_vec()),
         }
@@ -93,10 +81,16 @@ impl Oracle {
     /// Afterwards, it essentially calls itself (store_request) which stores the request in state.
     pub fn request(&mut self, payment: U128, spec_id: Base64String, callback_address: AccountId, callback_method: String, nonce: U128, data_version: U128, data: Base64String) {
         self._check_callback_address(&callback_address);
+        let nonce_u128: u128 = nonce.into();
 
-        let used_gas = env::used_gas();
-        env::log(format!("Used gas in request: {:?}", used_gas).as_bytes());
-        env::log(format!("env::prepaid_gas() - SINGLE_CALL_GAS in request: {:?}", env::prepaid_gas() - SINGLE_CALL_GAS).as_bytes());
+        let entry_option = self.requests.get(&env::predecessor_account_id());
+        if entry_option.is_some() {
+            // Ensure there isn't already the same nonce
+            let nonce_entry = entry_option.unwrap();
+            if nonce_entry.contains_key(&nonce_u128) {
+                env::panic(b"Existing account and nonce in requests");
+            }
+        }
 
         // first transfer token
         let promise_transfer_tokens = env::promise_create(
@@ -137,8 +131,8 @@ impl Oracle {
     #[allow(unused_variables)] // for data_version, which is also not used in Solidity as I understand
     pub fn store_request(&mut self, sender: AccountId, payment: U128, spec_id: Base64String, callback_address: AccountId, callback_method: String, nonce: U128, data_version: U128, data: Base64String) {
         // this method should only ever be called from this contract
-        // TODO: break this out into helper function
         self._only_owner_predecessor();
+
         // TODO: fix this "if" workaround until I can figure out how to write tests with promises
         if cfg!(target_arch = "wasm32") {
             assert_eq!(env::promise_results_count(), 1);
@@ -157,134 +151,61 @@ impl Oracle {
         let payment_u128: u128 = payment.into();
         let nonce_u128: u128 = nonce.into();
 
-        let request_id_string: String = format!("{}:{}", sender, nonce_u128);
-        let request_id_bytes = env::keccak256(request_id_string.as_bytes());
+        env::log(format!("EXPIRY_TIME: {}", EXPIRY_TIME).as_bytes());
+        let expiration: u64 = env::block_timestamp() + EXPIRY_TIME;
 
-        let existing_commitment = self.commitments.get(&request_id_bytes);
+        // store request
+        let oracle_request = OracleRequest {
+            caller_account: sender.clone(),
+            request_spec: spec_id,
+            callback_address,
+            callback_method,
+            data,
+            payment: payment_u128,
+            expiration,
+        };
 
-        if existing_commitment.is_some() {
-            // User mistakenly gave same request params, refund
-            // These calls will panic, so logic will no longer proceed below.
-            let promise_transfer_refund = env::promise_create(
-                self.link_account.clone(),
-                b"transfer",
-                json!({
-                "owner_id": env::current_account_id(),
-                "new_owner_id": env::signer_account_id(),
-                "amount": payment,
-            }).to_string().as_bytes(),
-                0,
-                SINGLE_CALL_GAS,
-            );
-
-            // call this contract's panic function after refunding
-            let promise_panic = env::promise_then(
-                promise_transfer_refund,
-                env::current_account_id(),
-                b"panic",
-                json!({
-                "error_message": "Must use a unique ID, composed of sender account and nonce."
-            }).to_string().as_bytes(),
-                0,
-                SINGLE_CALL_GAS
-            );
-
-            env::promise_return(promise_panic);
+        // Insert request and commitment into state.
+        /*
+          account =>
+            nonce => { Request }
+        */
+        let nonce_request_entry = self.requests.get(&sender);
+        let mut nonce_request = if nonce_request_entry.is_none() {
+            TreeMap::new(sender.clone().into_bytes())
         } else {
-            env::log(b"past existing commitment statement");
-            // TODO: don't hardcode this, but get past testing
-            env::log(format!("EXPIRY_TIME: {}", EXPIRY_TIME).as_bytes());
-            // let expiration: u64 = env::block_timestamp() + EXPIRY_TIME;
-            let expiration: u64 = 1906293427246306700u64;
-            let commitment = env::keccak256(format!("{}:{}:{}:{}", payment_u128, callback_address, callback_method, expiration.clone()).as_bytes());
-
-            // store entire request as well
-            // TODO: with websockets/subscriptions we can considering using logging instead of state
-            let oracle_request = OracleRequest {
-                caller_account: sender.clone(),
-                request_spec: spec_id,
-                callback_address,
-                callback_method,
-                data,
-                payment: payment_u128,
-                expiration,
-            };
-
-            // Insert request and commitment into state.
-            /*
-              account =>
-                nonce => { Request }
-            */
-            let nonce_request_entry = self.requests.get(&sender);
-            let mut nonce_request = if nonce_request_entry.is_none() {
-                TreeMap::new(sender.clone().into_bytes())
-            } else {
-                nonce_request_entry.unwrap()
-            };
-            nonce_request.insert(&nonce_u128, &oracle_request);
-            self.requests.insert(&sender.clone(), &nonce_request);
-            env::log(format!("Inserted commitment with\nKey: {:?}\nValue: {:?}", nonce_u128.clone(), oracle_request.clone()).as_bytes());
-
-            self.commitments.insert(&request_id_bytes, &commitment);
-            self.withdrawable_tokens += payment_u128;
-        }
+            nonce_request_entry.unwrap()
+        };
+        nonce_request.insert(&nonce_u128, &oracle_request);
+        self.requests.insert(&sender.clone(), &nonce_request);
+        env::log(format!("Inserted request with\nKey: {:?}\nValue: {:?}", nonce_u128.clone(), oracle_request.clone()).as_bytes());
     }
 
-    /// TODO: this function has not been tested and is in-progress
     /// Note that the request_id here is String instead of Vec<u8> as might be expected from the Solidity contract
-    pub fn fulfill_request(&mut self, account: AccountId, nonce: U128, payment: U128, callback_address: AccountId, callback_method: String, expiration: U128, data: Base64String) {
+    pub fn fulfill_request(&mut self, account: AccountId, nonce: U128, data: Base64String) {
         self._only_authorized_node();
-        let payment_u128: u128 = payment.into();
-        let nonce_u128: u128 = nonce.into();
-        let expiration_u128: u128 = expiration.into();
-
-        let request_id: String = format!("{}:{}", account, nonce_u128);
-        let request_id_bytes = env::keccak256(request_id.as_bytes());
-        env::log(format!("Looking to fulfill commitment with key {:?}", request_id_bytes.clone()).as_bytes());
-
-        let params_hash = env::keccak256(format!("{}:{}:{}:{}", payment_u128, callback_address, callback_method, expiration_u128).as_bytes());
-        env::log(format!("params_hash {:?}", params_hash.clone()).as_bytes());
-
-        match self.commitments.get(&request_id_bytes) {
-            None => env::panic(b"No commitment for given request ID"),
-            Some(commitment) => {
-                env::log(format!("fulfill commitment {:?}", commitment.clone()).as_bytes());
-                assert!(commitment == params_hash, "Params do not match request ID")
-            }
-        }
 
         // TODO: this is probably going to be too low at first, adjust
         assert!(env::prepaid_gas() - env::used_gas() > MINIMUM_CONSUMER_GAS_LIMIT, "Must provide consumer enough gas");
 
-        // pay oracle node the payment
-        let promise_pay_oracle_node = env::promise_create(
-            self.link_account.clone(),
-            b"transfer",
-            json!({
-                "owner_id": env::current_account_id(),
-                "new_owner_id": env::predecessor_account_id(),
-                "amount": payment,
-            }).to_string().as_bytes(),
-            0,
-            SINGLE_CALL_GAS,
-        );
+        // Get the request
+        let account_requests = self.requests.get(&account);
+        if account_requests.is_none() {
+            env::panic(b"Did not find the account to fulfill.");
+        }
+        let nonce_u128: u128 = nonce.into();
+        let request_option = account_requests.unwrap().get(&nonce_u128);
+        if request_option.is_none() {
+            env::panic(b"Did not find the account to fulfill.");
+        }
+        let request = request_option.unwrap();
 
-        let promise_post_oracle_payment = env::promise_then(
-            promise_pay_oracle_node,
-            env::current_account_id(),
-            b"fulfillment_post_oracle_payment",
-            &[],
-            0,
-            SINGLE_CALL_GAS
-        );
-
-        // TODO: seems as though the process isn't halted here, move these to callbacks
-        let promise_perform_callback = env::promise_then(
-            promise_post_oracle_payment,
-            callback_address,
-            callback_method.as_bytes(),
+        let promise_perform_callback = env::promise_create(
+            request.callback_address,
+            request.callback_method.as_bytes(),
             json!({
-                "price": data
+                "nonce": nonce.clone(),
+                "answer": data
             }).to_string().as_bytes(),
             0,
             SINGLE_CALL_GAS
@@ -300,24 +221,9 @@ impl Oracle {
             }).to_string().as_bytes(),
             0,
             SINGLE_CALL_GAS
-            // SINGLE_CALL_GAS * 4 // TODO: futz
         );
 
         env::promise_return(promise_post_callback);
-    }
-
-    pub fn fulfillment_post_oracle_payment(&mut self) {
-        self._only_owner_predecessor();
-        // TODO: fix this "if" workaround until I can figure out how to write tests with promises
-        if cfg!(target_arch = "wasm32") {
-            assert_eq!(env::promise_results_count(), 1);
-            // ensure successful promise, meaning tokens are transferred
-            match env::promise_result(0) {
-                PromiseResult::Successful(_) => {},
-                PromiseResult::Failed => env::panic(b"(fulfillment_post_oracle_payment) The promise failed. See receipt failures."),
-                PromiseResult::NotReady => env::panic(b"The promise was not ready."),
-            };
-        }
     }
 
     pub fn fulfillment_post_callback(&mut self, account: AccountId, nonce: U128) {
@@ -332,16 +238,15 @@ impl Oracle {
                 PromiseResult::NotReady => env::panic(b"The promise was not ready."),
             };
         }
-        // Remove commitment from local state
-        // let mut nonce_request = self.requests.get(&sender).unwrap();
-        // nonce_request.nonce_to_request.insert(&nonce_u128, &oracle_request);
+        // Remove request from state
+        let mut account_requests = self.requests.get(&account).unwrap();
         let nonce_u128: u128 = nonce.into();
-        let request_id: String = format!("{}:{}", account, nonce_u128);
-
-        self.requests.remove(&account);
-        let request_id_bytes = env::keccak256(request_id.as_bytes());
-        self.commitments.remove(&request_id_bytes.clone());
-        env::log(b"Commitment that has completed successfully and been removed.")
+        let payment = account_requests.get(&nonce_u128).unwrap().payment;
+        account_requests.remove(&nonce_u128);
+        // Must overwrite the new TreeMap with the account key
+        self.requests.insert(&account, &account_requests);
+        env::log(b"Request has completed successfully and been removed.");
+        self.withdrawable_tokens += payment;
     }
 
     pub fn is_authorized(&self, node: AccountId) -> bool {
@@ -510,18 +415,12 @@ impl Oracle {
         result
     }
 
-    pub fn get_all_commitments(&self) -> Vec<(Vec<u8>, Vec<u8>)> {
-        env::log(b"Returning all commitments");
-        self.commitments.to_vec()
-    }
-
     pub fn get_withdrawable_tokens(&self) -> u128 {
         self.withdrawable_tokens
     }
 
     pub fn reset(&mut self) {
         self._only_owner();
-        self.commitments.clear();
         self.requests.clear();
         env::log(b"Commitments and requests are cleared.");
     }
@@ -554,7 +453,8 @@ impl Oracle {
     }
 
     fn _check_callback_address(&mut self, callback_address: &AccountId) {
-        assert!(callback_address != &self.link_account, "Cannot callback to LINK.")
+        assert_ne!(callback_address, &self.link_account, "Cannot callback to LINK.");
+        assert_ne!(callback_address, env::current_account_id(), "Callback address cannot be the oracle contract.");
     }
 
     /// This method is not compile to the smart contract. It is used in tests only.
@@ -616,7 +516,8 @@ mod tests {
         let sender = alice();
         let payment_json: U128 = 51319_u128.into();
         let spec_id = encode("unique spec id".to_string());
-        let nonce_json: U128 = 1_u128.into();
+        let nonce = 1_u128;
+        let nonce_json: U128 = nonce.into();
         let data_version_json: U128 = 131_u128.into();
         let data = encode("BAT".to_string());
         contract.store_request( sender, payment_json, spec_id, "callback.sender.testnet".to_string(), "my_callback_fn".to_string(), nonce_json, data_version_json, data);
@@ -624,12 +525,19 @@ mod tests {
         // second validate the serialized requests
         let max_requests: U64 = 1u64.into();
         let serialized_output = contract.get_requests(alice(), max_requests);
-        let expected_result = "[{\"nonce\":\"1\",\"request\":{\"caller_account\":\"alice_near\",\"request_spec\":\"dW5pcXVlIHNwZWMgaWQ=\",\"callback_address\":\"callback.sender.testnet\",\"callback_method\":\"my_callback_fn\",\"data\":\"QkFU\",\"payment\":51319,\"expiration\":1906293427246306700}}]";
-        assert_eq!(expected_result, serialized_output);
+        let expiration_string = contract.requests.get(&alice()).unwrap().get(&nonce).unwrap().expiration.to_string();
+        let expected_before_expiration = "[{\"nonce\":\"1\",\"request\":{\"caller_account\":\"alice_near\",\"request_spec\":\"dW5pcXVlIHNwZWMgaWQ=\",\"callback_address\":\"callback.sender.testnet\",\"callback_method\":\"my_callback_fn\",\"data\":\"QkFU\",\"payment\":51319,\"expiration\":";
+        let expected_after_expiration = "}}]";
+        let expected_result = format!("{}{}{}", expected_before_expiration, expiration_string, expected_after_expiration);
+        let output_string = serde_json::to_string(serialized_output.as_slice());
+        assert_eq!(expected_result, output_string.unwrap());
     }
 
     #[test]
-    fn make_request() {
+    #[should_panic(
+        expected = "Existing account and nonce in requests"
+    )]
+    fn make_duplicate_request() {
         let mut context = get_context(alice(), 0);
         context.attached_deposit = TRANSFER_FROM_NEAR_COST;
         testing_env!(context.clone());
@@ -642,8 +550,13 @@ mod tests {
         let data_version: U128 = 131_u128.into();
         let data = encode("BAT".to_string());
 
-        contract.request(payment, spec_id, callback_address, callback_method, nonce, data_version, data);
-        // TODO: figure out why promise isn't going through
+        contract.request(payment.clone(), spec_id.clone(), callback_address.clone(), callback_method.clone(), nonce.clone(), data_version.clone(), data.clone());
+        context.prepaid_gas = 10u64.pow(18);
+        contract.store_request( alice(), payment.clone(), spec_id.clone(), callback_address.clone(), callback_method.clone(), nonce.clone(), data_version.clone(), data.clone());
+        testing_env!(context.clone());
+
+        contract.request(payment.clone(), spec_id.clone(), callback_address.clone(), callback_method.clone(), nonce.clone(), data_version.clone(), data.clone());
+        contract.store_request( alice(), payment, spec_id, callback_address, callback_method, nonce, data_version, data);
     }
 
     #[test]
@@ -685,45 +598,45 @@ mod tests {
         contract.store_request( link(), 6_u128.into(), "unique-id".to_string(), "callback.testnet".to_string(), "test_callback".to_string(), 1_u128.into(), 131_u128.into(), "BAT".to_string());
 
         let max_num_accounts: U64 = 2u64.into();
-        let json_result = contract.get_requests_summary(max_num_accounts);
-        let expected_result = "[{\"account\":\"alice_near\",\"total_requests\":2},{\"account\":\"bob_near\",\"total_requests\":1}]";
-        assert_eq!(json_result, expected_result);
+        let mut json_result = contract.get_requests_summary(max_num_accounts);
+        let mut output_string = serde_json::to_string(json_result.as_slice());
+        let mut expected_result = "[{\"account\":\"alice_near\",\"total_requests\":2},{\"account\":\"bob_near\",\"total_requests\":1}]";
+        assert_eq!(output_string.unwrap(), expected_result);
 
         // now start after "alice_near"
-        let json_result = contract.get_requests_summary_from(alice(), max_num_accounts);
-        let expected_result = "[{\"account\":\"bob_near\",\"total_requests\":1},{\"account\":\"link_near\",\"total_requests\":1}]";
-        assert_eq!(json_result, expected_result);
+        json_result = contract.get_requests_summary_from(alice(), max_num_accounts);
+        expected_result = "[{\"account\":\"bob_near\",\"total_requests\":1},{\"account\":\"link_near\",\"total_requests\":1}]";
+        output_string = serde_json::to_string(json_result.as_slice());
+        assert_eq!(output_string.unwrap(), expected_result);
     }
 
     #[test]
     fn add_request_fulfill() {
-        let context = get_context(alice(), 0);
+        let mut context = get_context(alice(), 0);
+        context.attached_deposit = TRANSFER_FROM_NEAR_COST;
         testing_env!(context);
         let mut contract = Oracle::new(link(), alice());
-
         // make request
         let payment: U128 = 6_u128.into();
         let spec_id = encode("unique spec id".to_string());
         let callback_address = env::current_account_id();
         let callback_method = "test_callback".to_string();
-        let nonce: U128 = 1_u128.into();
+        let nonce= 1_u128;
+        let nonce_json: U128 = nonce.into();
         let data_version: U128 = 131_u128.into();
         let data = encode("BAT".to_string());
 
-        // contract.request(payment.clone(), spec_id, callback_address.clone(), callback_method.clone(), nonce.clone(), data_version, data.clone());
-        contract.store_request( alice(), payment, spec_id, callback_address.clone(), callback_method.clone(), nonce.clone(), data_version, data.clone());
+        println!("Number of requests: {}", contract.requests.len());
+        contract.request(payment.clone(), spec_id.clone(), callback_address.clone(), callback_method.clone(), nonce_json.clone(), data_version, data.clone());
+        contract.store_request( alice(), payment, spec_id, callback_address.clone(), callback_method.clone(), nonce_json.clone(), data_version, data.clone());
         let max_num_accounts: U64 = 1u64.into();
-        println!("{}", contract.get_requests_summary(max_num_accounts));
+        println!("{}", serde_json::to_string(contract.get_requests_summary(max_num_accounts).as_slice()).unwrap());
         // authorize bob
         contract.add_authorization(bob());
 
         // fulfill request
-        let hardcoded_expiration: U128 = 1906293427246306700_u128.into();
         let context = get_context(bob(), env::storage_usage());
         testing_env!(context);
-        contract.fulfill_request(alice(), 1.into(), payment, callback_address, callback_method, hardcoded_expiration, data);
+        contract.fulfill_request(alice(), 1.into(), data);
     }
 }
-
-// TODO: fix errors here: https://explorer.testnet.near.org/transactions/4tQhZ3hHM1PZ7eqwXFupojkKNaB6ko5vM6JyUF18Mftd
-// TODO: make sure it's actually deleting everything once fulfilled
