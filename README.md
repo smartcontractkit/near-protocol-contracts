@@ -152,7 +152,7 @@ We'll show two ways to have the client contract send the oracle contract a reque
 near call oracle.$NEAR_ACCT request '{"payment": "10", "spec_id": "dW5pcXVlIHNwZWMgaWQ=", "callback_address": "client.'$NEAR_ACCT'", "callback_method": "token_price_callback", "nonce": "1", "data_version": "1", "data": "QkFU"}' --accountId client.$NEAR_ACCT --gas 300000000000000
 ```
 
-2. **Any NEAR account** calls the **oracle client** contract, providing a symbol. Upon receiving this, the **oracle client** sends a cross-contract call to the **oracle contract** to store the request. (Payment and other values are hardcoded here, the nonce is automatically incremented. This assumes that the **oracle client** contract only wants to use one oracle contract.)
+2. **Any NEAR account** calls the **oracle client** contract, providing request arguments. Upon receiving this, the **oracle client** sends a cross-contract call to the **oracle contract** to store the request. (Payment and other values are hardcoded here, the nonce is automatically incremented. This assumes that the **oracle client** contract only wants to use one oracle contract.)
 
 ```bash
 near call client.$NEAR_ACCT demo_token_price '{"symbol": "QkFU", "spec_id": "dW5pcXVlIHNwZWMgaWQ="}' --accountId client.$NEAR_ACCT --gas 300000000000000
