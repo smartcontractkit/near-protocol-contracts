@@ -77,7 +77,13 @@ Let's begin!
 Build the oracle, client, and NEAR LINK contracts with:
 
 ```bash
-./build_all.sh
+./build
+```
+
+Run all tests:
+
+```bash
+./test
 ```
 
 Then deploy and instantiate like so…
@@ -175,8 +181,73 @@ curl -d '{"jsonrpc": "2.0", "method": "query", "id": "chainlink", "params": {"re
 ```
 
 The above will return something like:
+
 ```json
-{"jsonrpc":"2.0","result":{"result":[91,123,34,97,99,99,111,117,110,116,34,58,34,99,108,105,101,110,116,46,100,101,109,111,46,116,101,115,116,110,101,116,34,44,34,116,111,116,97,108,95,114,101,113,117,101,115,116,115,34,58,49,125,93],"logs":[],"block_height":10551293,"block_hash":"Ljh67tYk5bGXPu9TamJNG4vHp18cEBDxebKHpEUeZEo"},"id":"chainlink"}
+{
+  "jsonrpc": "2.0",
+  "result": {
+    "result": [
+      91,
+      123,
+      34,
+      97,
+      99,
+      99,
+      111,
+      117,
+      110,
+      116,
+      34,
+      58,
+      34,
+      99,
+      108,
+      105,
+      101,
+      110,
+      116,
+      46,
+      100,
+      101,
+      109,
+      111,
+      46,
+      116,
+      101,
+      115,
+      116,
+      110,
+      101,
+      116,
+      34,
+      44,
+      34,
+      116,
+      111,
+      116,
+      97,
+      108,
+      95,
+      114,
+      101,
+      113,
+      117,
+      101,
+      115,
+      116,
+      115,
+      34,
+      58,
+      49,
+      125,
+      93
+    ],
+    "logs": [],
+    "block_height": 10551293,
+    "block_hash": "Ljh67tYk5bGXPu9TamJNG4vHp18cEBDxebKHpEUeZEo"
+  },
+  "id": "chainlink"
+}
 ```
 
 We'll outline a quick way to see the results if the machine has [Python installed](https://docs.python-guide.org/starting/install3/osx/). Copy the value of the innermost `result` key, which is an array of unsigned 8-bit integers.

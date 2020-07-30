@@ -619,7 +619,7 @@ mod tests {
         // make request
         let payment: U128 = 6_u128.into();
         let spec_id = encode("unique spec id".to_string());
-        let callback_address = env::current_account_id();
+        let callback_address = "callback.testnet".to_string();
         let callback_method = "test_callback".to_string();
         let nonce= 1_u128;
         let nonce_json: U128 = nonce.into();
