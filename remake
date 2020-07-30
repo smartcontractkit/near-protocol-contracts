@@ -1,4 +1,5 @@
 #!/bin/bash
+
 near delete oracle.$NEAR_ACCT $NEAR_ACCT
 near create-account oracle.$NEAR_ACCT --masterAccount $NEAR_ACCT
 near delete client.$NEAR_ACCT $NEAR_ACCT

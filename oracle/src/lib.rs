@@ -454,7 +454,7 @@ impl Oracle {
 
     fn _check_callback_address(&mut self, callback_address: &AccountId) {
         assert_ne!(callback_address, &self.link_account, "Cannot callback to LINK.");
-        assert_ne!(callback_address, env::current_account_id(), "Callback address cannot be the oracle contract.");
+        assert_ne!(callback_address, &env::current_account_id(), "Callback address cannot be the oracle contract.");
     }
 
     /// This method is not compile to the smart contract. It is used in tests only.
@@ -619,7 +619,7 @@ mod tests {
         // make request
         let payment: U128 = 6_u128.into();
         let spec_id = encode("unique spec id".to_string());
-        let callback_address = env::current_account_id();
+        let callback_address = "callback.testnet".to_string();
         let callback_method = "test_callback".to_string();
         let nonce= 1_u128;
         let nonce_json: U128 = nonce.into();
