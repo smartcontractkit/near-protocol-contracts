@@ -292,7 +292,7 @@ near view oracle.$NEAR_ACCT get_all_requests '{"max_num_accounts": "100", "max_r
 **Oracle node** uses its NEAR account keys to fulfill the request:
 
 ```bash
-near call oracle.$NEAR_ACCT fulfill_request '{"account": "client.'$NEAR_ACCT'", "nonce": "1", "data": "MTkuMQ=="}' --accountId oracle-node.$NEAR_ACCT --gas 300000000000000
+near call oracle.$NEAR_ACCT fulfill_request '{"account": "client.'$NEAR_ACCT'", "nonce": "0", "data": "MTkuMQ=="}' --accountId oracle-node.$NEAR_ACCT --gas 300000000000000
 ```
 
 (Optional) Check the **oracle client** for the values it has saved:
