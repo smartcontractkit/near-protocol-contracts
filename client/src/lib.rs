@@ -55,7 +55,7 @@ impl ClientContract {
 
         ext_oracle::request(payment, spec_id, env::current_account_id(), "token_price_callback".to_string(), nonce, U128(1), symbol, &self.oracle_account, 0, SINGLE_CALL_GAS);
     }
-    
+
     #[allow(dead_code)] // This function gets called from the oracle
     pub fn token_price_callback(&mut self, nonce: U128, answer: Base64String) {
         let base64_price = match str::from_utf8(answer.as_bytes()) {
