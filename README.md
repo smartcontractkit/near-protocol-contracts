@@ -11,7 +11,7 @@ The components of this oracle system are:
 
 ![Chainlink and NEAR diagram](assets/near-chainlink-diagram-v1.png)
 
-## Set up testnet accounts, get near-shell
+## Get near-shell, Rust, and set up testnet accounts
 
 We'll be using [NEAR Shell](https://docs.near.org/docs/development/near-shell), the NEAR CLI tool that makes things simpler. Please have [NodeJS version 12 or greater](https://nodejs.org/en/download/package-manager/). Then install globally with:
 
@@ -19,7 +19,31 @@ We'll be using [NEAR Shell](https://docs.near.org/docs/development/near-shell), 
 npm install -g near-shell
 ```
 
-Create a NEAR testnet account with [Wallet](https://wallet.testnet.near.org).
+These smart contracts are written in Rust. Please follow these directions to get Rust going on your local machine.
+
+Install Rustup:
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+([Official documentation](https://www.rust-lang.org/tools/install))
+
+Follow the directions which includes running:
+
+```bash
+source $HOME/.cargo/env
+```
+
+Add wasm target to your toolchain: 
+
+```bash
+rustup target add wasm32-unknown-unknown
+```
+
+([Info on wasm32-unknown-unknown](https://doc.rust-lang.org/edition-guide/rust-2018/platform-and-target-support/webassembly-support.html))
+
+Rust is now ready on your machine.
+
+Next, create a NEAR testnet account with [Wallet](https://wallet.testnet.near.org).
 
 Set an environment variable to use in these examples. For instance, if your test account is `oracle.testnet` set it like so:
 
