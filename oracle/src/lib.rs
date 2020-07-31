@@ -50,7 +50,7 @@ pub struct Oracle {
     pub owner: AccountId,
     pub link_account: AccountId,
     pub withdrawable_tokens: u128,
-    pub nonces: HashMap<AccountId, u128>,
+    pub nonces: TreeMap<AccountId, U128>,
     pub requests: TreeMap<AccountId, TreeMap<u128, OracleRequest>>,
     pub authorized_nodes: UnorderedSet<AccountId>,
 }
@@ -73,7 +73,7 @@ impl Oracle {
             owner: owner_id,
             link_account: link_id,
             withdrawable_tokens: 0,
-            nonces: HashMap::new(),
+            nonces: TreeMap::new(b"nonces".to_vec()),
             requests: TreeMap::new(b"requests".to_vec()),
             authorized_nodes: UnorderedSet::new(b"authorized_nodes".to_vec()),
         }
@@ -94,8 +94,11 @@ impl Oracle {
             }
         }
 
-        let last_nonce = self.nonces.get(&env::predecessor_account_id()).cloned().unwrap_or(0);
-        assert!(last_nonce < nonce_u128, format!("Invalid, already used nonce: {:?}", nonce_u128));
+        let last_nonce_option: Option<U128> = self.get_nonce(env::predecessor_account_id());
+        if last_nonce_option.is_some() {
+            let last_nonce_u128: u128 = last_nonce_option.unwrap().into();
+            assert!(last_nonce_u128 < nonce_u128, format!("Invalid, already used nonce: {:?}", nonce_u128));
+        }
 
         // first transfer token
         let promise_transfer_tokens = env::promise_create(
@@ -183,7 +186,7 @@ impl Oracle {
         };
         nonce_request.insert(&nonce_u128, &oracle_request);
         self.requests.insert(&sender.clone(), &nonce_request);
-        self.nonces.insert(sender.clone(), nonce_u128.clone());
+        self.nonces.insert(&sender.clone(), &nonce.clone());
         env::log(format!("Inserted request with\nKey: {:?}\nValue: {:?}", nonce_u128.clone(), oracle_request.clone()).as_bytes());
     }
 
@@ -421,8 +424,16 @@ impl Oracle {
         result
     }
 
-    pub fn get_nonces(&self) -> HashMap<AccountId, u128> {
-        self.nonces.clone()
+    pub fn get_nonce(&self, account: AccountId) -> Option<U128> {
+        self.nonces.get(&account)
+    }
+
+    pub fn get_nonces(&self) -> HashMap<AccountId, U128> {
+        let mut result: HashMap<AccountId, U128> = HashMap::new();
+        for nonce in self.nonces.iter() {
+            result.insert(nonce.0.clone(), nonce.1.clone());
+        }
+        result
     }
 
     pub fn get_withdrawable_tokens(&self) -> u128 {
@@ -589,6 +600,13 @@ mod tests {
         context.prepaid_gas = 10u64.pow(18);
         contract.store_request(alice(), payment.clone(), spec_id.clone(), callback_address.clone(), callback_method.clone(), 8_u128.into(), data_version.clone(), data.clone());
         testing_env!(context.clone());
+
+        let default: U128 = 0_u128.into();
+        let current_nonce: u128 = contract.get_nonce(alice()).unwrap_or(default).into();
+        assert_eq!(current_nonce, 8_u128.into());
+
+        let current_mapped_nonce: U128 = *contract.get_nonces().get(&alice()).clone().unwrap_or(&default);
+        assert_eq!(current_mapped_nonce, 8_u128.into());
 
         contract.request(payment.clone(), spec_id.clone(), callback_address.clone(), callback_method.clone(), 7_u128.into(), data_version.clone(), data.clone());
         contract.store_request(alice(), payment, spec_id, callback_address, callback_method, 7_u128.into(), data_version, data);
