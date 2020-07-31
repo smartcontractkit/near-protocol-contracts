@@ -4,7 +4,7 @@ There are a number of subdirectories in this project that represent the moving p
 
 The components of this oracle system are:
 
-- Oracle client (Alice's contract that wants a token price from an off-chain API)  
+- Oracle client (Alice's contract that wants a token price from an off-chain API)
 - Oracle contract (Bob's contract that accepts a fungible token payment and stores a request to be processed off-chain)
 - Oracle node (Bob's off-chain machine polling the oracle contract on NEAR, and fulfilling requests. **Note**: code for the oracle node is not included in this repository, but one can use an oracle protocol like Chainlink.)
 - Fungible token (The token paid by Alice to Bob in exchange for getting an answer to her request)
@@ -22,9 +22,11 @@ npm install -g near-shell
 These smart contracts are written in Rust. Please follow these directions to get Rust going on your local machine.
 
 Install Rustup:
+
 ```bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
+
 ([Official documentation](https://www.rust-lang.org/tools/install))
 
 Follow the directions which includes running:
@@ -33,7 +35,7 @@ Follow the directions which includes running:
 source $HOME/.cargo/env
 ```
 
-Add wasm target to your toolchain: 
+Add wasm target to your toolchain:
 
 ```bash
 rustup target add wasm32-unknown-unknown
@@ -150,18 +152,23 @@ near view near-link.$NEAR_ACCT get_allowance '{"owner_id": "client.'$NEAR_ACCT'"
 
 ## Make a request
 
+Let's make a request to a Chainlink node and request an ETH-USD price:
+
+- Packed JSON arguments: `{"get":"https://min-api.cryptocompare.com/data/price?fsym=ETH&tsyms=USD","path":"USD","times":100}`
+- Base64 encoded arguments: `eyJnZXQiOiJodHRwczovL21pbi1hcGkuY3J5cHRvY29tcGFyZS5jb20vZGF0YS9wcmljZT9mc3ltPUVUSCZ0c3ltcz1VU0QiLCJwYXRoIjoiVVNEIiwidGltZXMiOjEwMH0=`
+
 We'll show two ways to have the client contract send the oracle contract a request. First, we'll directly call the oracle contract using the key pair from the client contract.
 
 1. **Oracle client** makes a direct request to **oracle contract** with payment of 10 NEAR LINK. We can do this because we have the key pair for the client contract.
 
 ```bash
-near call oracle.$NEAR_ACCT request '{"payment": "10", "spec_id": "dW5pcXVlIHNwZWMgaWQ=", "callback_address": "client.'$NEAR_ACCT'", "callback_method": "token_price_callback", "nonce": "1", "data_version": "1", "data": "QkFU"}' --accountId client.$NEAR_ACCT --gas 300000000000000
+near call oracle.$NEAR_ACCT request '{"payment": "10", "spec_id": "dW5pcXVlIHNwZWMgaWQ=", "callback_address": "client.'$NEAR_ACCT'", "callback_method": "token_price_callback", "nonce": "1", "data_version": "1", "data": "eyJnZXQiOiJodHRwczovL21pbi1hcGkuY3J5cHRvY29tcGFyZS5jb20vZGF0YS9wcmljZT9mc3ltPUVUSCZ0c3ltcz1VU0QiLCJwYXRoIjoiVVNEIiwidGltZXMiOjEwMH0="}' --accountId client.$NEAR_ACCT --gas 300000000000000
 ```
 
 2. **Any NEAR account** calls the **oracle client** contract, providing request arguments. Upon receiving this, the **oracle client** sends a cross-contract call to the **oracle contract** to store the request. (Payment and other values are hardcoded here, the nonce is automatically incremented. This assumes that the **oracle client** contract only wants to use one oracle contract.)
 
 ```bash
-near call client.$NEAR_ACCT demo_token_price '{"symbol": "QkFU", "spec_id": "dW5pcXVlIHNwZWMgaWQ="}' --accountId client.$NEAR_ACCT --gas 300000000000000
+near call client.$NEAR_ACCT demo_token_price '{"symbol": "eyJnZXQiOiJodHRwczovL21pbi1hcGkuY3J5cHRvY29tcGFyZS5jb20vZGF0YS9wcmljZT9mc3ltPUVUSCZ0c3ltcz1VU0QiLCJwYXRoIjoiVVNEIiwidGltZXMiOjEwMH0=", "spec_id": "dW5pcXVlIHNwZWMgaWQ="}' --accountId client.$NEAR_ACCT --gas 300000000000000
 ```
 
 ## View pending requests
@@ -278,7 +285,7 @@ The previous command (calling the method `get_requests_summary`) is useful if th
 near view oracle.$NEAR_ACCT get_requests '{"account": "client.'$NEAR_ACCT'", "max_requests": "10"}'
 ```
 
-It sees the `data` is `QkFU` which is the Base64-encoded string for `BAT`, the token to look up. The **oracle node** presumably makes a call to an exchange to gather the price of Basic Attention Token (BAT) and finds it is at \$0.19 per token.
+The **oracle node** uses the passed request arguments to fetch the price of (for example) Basic Attention Token (BAT) and finds it is at \$0.19 per token.
 The data `0.19` as a `Vec<u8>` is `MTkuMQ==`
 
 There's a third method to get all the requests, ordered by account name and nonce, where a specified maximum number of results is provided.
