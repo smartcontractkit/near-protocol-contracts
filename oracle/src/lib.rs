@@ -50,6 +50,7 @@ pub struct Oracle {
     pub owner: AccountId,
     pub link_account: AccountId,
     pub withdrawable_tokens: u128,
+    pub nonces: TreeMap<AccountId, U128>,
     pub requests: TreeMap<AccountId, TreeMap<u128, OracleRequest>>,
     pub authorized_nodes: UnorderedSet<AccountId>,
 }
@@ -72,6 +73,7 @@ impl Oracle {
             owner: owner_id,
             link_account: link_id,
             withdrawable_tokens: 0,
+            nonces: TreeMap::new(b"nonces".to_vec()),
             requests: TreeMap::new(b"requests".to_vec()),
             authorized_nodes: UnorderedSet::new(b"authorized_nodes".to_vec()),
         }
@@ -90,6 +92,12 @@ impl Oracle {
             if nonce_entry.contains_key(&nonce_u128) {
                 env::panic(b"Existing account and nonce in requests");
             }
+        }
+
+        let last_nonce_option: Option<U128> = self.get_nonce(env::predecessor_account_id());
+        if last_nonce_option.is_some() {
+            let last_nonce_u128: u128 = last_nonce_option.unwrap().into();
+            assert!(last_nonce_u128 < nonce_u128, format!("Invalid, already used nonce: {:?}", nonce_u128));
         }
 
         // first transfer token
@@ -178,6 +186,7 @@ impl Oracle {
         };
         nonce_request.insert(&nonce_u128, &oracle_request);
         self.requests.insert(&sender.clone(), &nonce_request);
+        self.nonces.insert(&sender.clone(), &nonce.clone());
         env::log(format!("Inserted request with\nKey: {:?}\nValue: {:?}", nonce_u128.clone(), oracle_request.clone()).as_bytes());
     }
 
@@ -415,6 +424,18 @@ impl Oracle {
         result
     }
 
+    pub fn get_nonce(&self, account: AccountId) -> Option<U128> {
+        self.nonces.get(&account)
+    }
+
+    pub fn get_nonces(&self) -> HashMap<AccountId, U128> {
+        let mut result: HashMap<AccountId, U128> = HashMap::new();
+        for nonce in self.nonces.iter() {
+            result.insert(nonce.0.clone(), nonce.1.clone());
+        }
+        result
+    }
+
     pub fn get_withdrawable_tokens(&self) -> u128 {
         self.withdrawable_tokens
     }
@@ -552,11 +573,43 @@ mod tests {
 
         contract.request(payment.clone(), spec_id.clone(), callback_address.clone(), callback_method.clone(), nonce.clone(), data_version.clone(), data.clone());
         context.prepaid_gas = 10u64.pow(18);
-        contract.store_request( alice(), payment.clone(), spec_id.clone(), callback_address.clone(), callback_method.clone(), nonce.clone(), data_version.clone(), data.clone());
+        contract.store_request(alice(), payment.clone(), spec_id.clone(), callback_address.clone(), callback_method.clone(), nonce.clone(), data_version.clone(), data.clone());
         testing_env!(context.clone());
 
         contract.request(payment.clone(), spec_id.clone(), callback_address.clone(), callback_method.clone(), nonce.clone(), data_version.clone(), data.clone());
-        contract.store_request( alice(), payment, spec_id, callback_address, callback_method, nonce, data_version, data);
+        contract.store_request(alice(), payment, spec_id, callback_address, callback_method, nonce, data_version, data);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Invalid, already used nonce: 7"
+    )]
+    fn make_invalid_nonce_request() {
+        let mut context = get_context(alice(), 0);
+        context.attached_deposit = TRANSFER_FROM_NEAR_COST;
+        testing_env!(context.clone());
+        let mut contract = Oracle::new(link(), alice());
+        let payment: U128 = 6_u128.into();
+        let spec_id = encode("unique spec id".to_string());
+        let callback_address = "callback.testnet".to_string();
+        let callback_method = "test_callback".to_string();
+        let data_version: U128 = 131_u128.into();
+        let data = encode("BAT".to_string());
+
+        contract.request(payment.clone(), spec_id.clone(), callback_address.clone(), callback_method.clone(), 8_u128.into(), data_version.clone(), data.clone());
+        context.prepaid_gas = 10u64.pow(18);
+        contract.store_request(alice(), payment.clone(), spec_id.clone(), callback_address.clone(), callback_method.clone(), 8_u128.into(), data_version.clone(), data.clone());
+        testing_env!(context.clone());
+
+        let default: U128 = 0_u128.into();
+        let current_nonce: u128 = contract.get_nonce(alice()).unwrap_or(default).into();
+        assert_eq!(current_nonce, 8_u128.into());
+
+        let current_mapped_nonce: U128 = *contract.get_nonces().get(&alice()).clone().unwrap_or(&default);
+        assert_eq!(current_mapped_nonce, 8_u128.into());
+
+        contract.request(payment.clone(), spec_id.clone(), callback_address.clone(), callback_method.clone(), 7_u128.into(), data_version.clone(), data.clone());
+        contract.store_request(alice(), payment, spec_id, callback_address, callback_method, 7_u128.into(), data_version, data);
     }
 
     #[test]
@@ -628,7 +681,7 @@ mod tests {
 
         println!("Number of requests: {}", contract.requests.len());
         contract.request(payment.clone(), spec_id.clone(), callback_address.clone(), callback_method.clone(), nonce_json.clone(), data_version, data.clone());
-        contract.store_request( alice(), payment, spec_id, callback_address.clone(), callback_method.clone(), nonce_json.clone(), data_version, data.clone());
+        contract.store_request(alice(), payment, spec_id, callback_address.clone(), callback_method.clone(), nonce_json.clone(), data_version, data.clone());
         let max_num_accounts: U64 = 1u64.into();
         println!("{}", serde_json::to_string(contract.get_requests_summary(max_num_accounts).as_slice()).unwrap());
         // authorize bob
