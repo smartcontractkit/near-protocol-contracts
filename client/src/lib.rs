@@ -47,13 +47,14 @@ impl ClientContract {
 
     /// symbol: Base64-encoded token symbol
     #[allow(dead_code)] // This function gets called from the oracle
-    pub fn demo_token_price(&mut self, symbol: String, spec_id: Base64String) {
+    pub fn demo_token_price(&mut self, symbol: String, spec_id: Base64String) -> U128 {
         // For the sake of demo, a few hardcoded values
         let payment = U128(10);
-        let nonce: U128 = self.nonce.into();
         self.nonce += 1;
+        let nonce: U128 = self.nonce.into();
 
         ext_oracle::request(payment, spec_id, env::current_account_id(), "token_price_callback".to_string(), nonce, U128(1), symbol, &self.oracle_account, 0, SINGLE_CALL_GAS);
+        U128(self.nonce)
     }
 
     #[allow(dead_code)] // This function gets called from the oracle
@@ -85,5 +86,64 @@ impl ClientContract {
             counter += 1;
         }
         result
+    }
+
+    #[allow(dead_code)]
+    pub fn get_received_val(&self, nonce: U128) -> String {
+        let nonce_u128: u128 = nonce.into();
+        self.received.get(&nonce_u128).unwrap_or("-1".to_string())
+    }
+
+    #[allow(dead_code)]
+    pub fn reset(&mut self) {
+        self.received.clear();
+        self.nonce = 0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use near_sdk::{MockedBlockchain, StorageUsage};
+    use near_sdk::{testing_env, VMContext};
+    use base64::{encode};
+
+    fn link() -> AccountId { "link_near".to_string() }
+
+    fn alice() -> AccountId { "alice_near".to_string() }
+
+    fn bob() -> AccountId { "bob_near".to_string() }
+    fn oracle() -> AccountId { "oracle.testnet".to_string() }
+
+    fn get_context(signer_account_id: AccountId, storage_usage: StorageUsage) -> VMContext {
+        VMContext {
+            current_account_id: alice(),
+            signer_account_id,
+            signer_account_pk: vec![0, 1, 2],
+            predecessor_account_id: alice(),
+            input: vec![],
+            block_index: 0,
+            block_timestamp: 0,
+            epoch_height: 0,
+            account_balance: 0,
+            account_locked_balance: 0,
+            storage_usage,
+            attached_deposit: 0,
+            prepaid_gas: 10u64.pow(18),
+            random_seed: vec![0, 1, 2],
+            is_view: false,
+            output_data_receivers: vec![],
+        }
+    }
+
+    #[test]
+    fn demo_token_price() {
+        let context = get_context(alice(), 0);
+        testing_env!(context);
+        let mut contract = ClientContract::new(oracle() );
+        let mut returned_nonce = contract.demo_token_price("eyJnZXQiOiJodHRwczovL21pbi1hcGkuY3J5cHRvY29tcGFyZS5jb20vZGF0YS9wcmljZT9mc3ltPUVUSCZ0c3ltcz1VU0QiLCJwYXRoIjoiVVNEIiwidGltZXMiOjEwMH0".to_string(), "dW5pcXVlIHNwZWMgaWQ=".to_string());
+        assert_eq!(U128(1), returned_nonce);
+        returned_nonce = contract.demo_token_price("eyJnZXQiOiJodHRwczovL21pbi1hcGkuY3J5cHRvY29tcGFyZS5jb20vZGF0YS9wcmljZT9mc3ltPUVUSCZ0c3ltcz1VU0QiLCJwYXRoIjoiVVNEIiwidGltZXMiOjEwMH0".to_string(), "dW5pcXVlIHNwZWMgaWQ=".to_string());
+        assert_eq!(U128(2), returned_nonce);
     }
 }
