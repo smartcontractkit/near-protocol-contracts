@@ -40,7 +40,7 @@ impl ClientContract {
     pub fn new(oracle_account: AccountId) -> Self {
         Self {
             oracle_account,
-            nonce: 0,
+            nonce: 0_u128,
             received: TreeMap::new(b"r".to_vec()),
         }
     }
@@ -92,12 +92,6 @@ impl ClientContract {
     pub fn get_received_val(&self, nonce: U128) -> String {
         let nonce_u128: u128 = nonce.into();
         self.received.get(&nonce_u128).unwrap_or("-1".to_string())
-    }
-
-    #[allow(dead_code)]
-    pub fn reset(&mut self) {
-        self.received.clear();
-        self.nonce = 0
     }
 }
 
