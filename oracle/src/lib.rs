@@ -72,7 +72,7 @@ impl Oracle {
         Self {
             owner: owner_id,
             link_account: link_id,
-            withdrawable_tokens: 0,
+            withdrawable_tokens: 0_u128,
             nonces: TreeMap::new(b"nonces".to_vec()),
             requests: TreeMap::new(b"requests".to_vec()),
             authorized_nodes: UnorderedSet::new(b"authorized_nodes".to_vec()),
