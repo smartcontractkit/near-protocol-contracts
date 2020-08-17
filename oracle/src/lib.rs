@@ -15,7 +15,7 @@ const EXPIRY_TIME: u64 = 5 * 60 * 1000_000_000;
 // max gas: 300_000_000_000_000
 
 const MINIMUM_CONSUMER_GAS_LIMIT: u64 = 1000_000_000;
-const SINGLE_CALL_GAS: u64 = 20_000_000_000_000; // 2 x 10^13
+const SINGLE_CALL_GAS: u64 = 90_000_000_000_000; // 2 x 10^13
 const TRANSFER_FROM_NEAR_COST: u128 = 36_500_000_000_000_000_000_000; // 365 x 10^20
 
 pub type Base64String = String;
@@ -72,7 +72,7 @@ impl Oracle {
         Self {
             owner: owner_id,
             link_account: link_id,
-            withdrawable_tokens: 0,
+            withdrawable_tokens: 0_u128,
             nonces: TreeMap::new(b"nonces".to_vec()),
             requests: TreeMap::new(b"requests".to_vec()),
             authorized_nodes: UnorderedSet::new(b"authorized_nodes".to_vec()),
