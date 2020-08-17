@@ -47,7 +47,7 @@ impl ClientContract {
 
     /// symbol: Base64-encoded token symbol
     #[allow(dead_code)] // This function gets called from the oracle
-    pub fn demo_token_price(&mut self, symbol: String, spec_id: Base64String) -> U128 {
+    pub fn get_token_price(&mut self, symbol: String, spec_id: Base64String) -> U128 {
         // For the sake of demo, a few hardcoded values
         let payment = U128(10);
         self.nonce += 1;
@@ -131,13 +131,13 @@ mod tests {
     }
 
     #[test]
-    fn demo_token_price() {
+    fn test_token_price() {
         let context = get_context(alice(), 0);
         testing_env!(context);
         let mut contract = ClientContract::new(oracle() );
-        let mut returned_nonce = contract.demo_token_price("eyJnZXQiOiJodHRwczovL21pbi1hcGkuY3J5cHRvY29tcGFyZS5jb20vZGF0YS9wcmljZT9mc3ltPUVUSCZ0c3ltcz1VU0QiLCJwYXRoIjoiVVNEIiwidGltZXMiOjEwMH0".to_string(), "dW5pcXVlIHNwZWMgaWQ=".to_string());
+        let mut returned_nonce = contract.get_token_price("eyJnZXQiOiJodHRwczovL21pbi1hcGkuY3J5cHRvY29tcGFyZS5jb20vZGF0YS9wcmljZT9mc3ltPUVUSCZ0c3ltcz1VU0QiLCJwYXRoIjoiVVNEIiwidGltZXMiOjEwMH0".to_string(), "dW5pcXVlIHNwZWMgaWQ=".to_string());
         assert_eq!(U128(1), returned_nonce);
-        returned_nonce = contract.demo_token_price("eyJnZXQiOiJodHRwczovL21pbi1hcGkuY3J5cHRvY29tcGFyZS5jb20vZGF0YS9wcmljZT9mc3ltPUVUSCZ0c3ltcz1VU0QiLCJwYXRoIjoiVVNEIiwidGltZXMiOjEwMH0".to_string(), "dW5pcXVlIHNwZWMgaWQ=".to_string());
+        returned_nonce = contract.get_token_price("eyJnZXQiOiJodHRwczovL21pbi1hcGkuY3J5cHRvY29tcGFyZS5jb20vZGF0YS9wcmljZT9mc3ltPUVUSCZ0c3ltcz1VU0QiLCJwYXRoIjoiVVNEIiwidGltZXMiOjEwMH0".to_string(), "dW5pcXVlIHNwZWMgaWQ=".to_string());
         assert_eq!(U128(2), returned_nonce);
     }
 }
