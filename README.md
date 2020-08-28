@@ -1,22 +1,23 @@
 # Integrating NEAR and Chainlink
 
-There are a number of subdirectories in this project that represent the moving pieces of a simple oracle system. This repository is in continual development and serves to demonstrate how a smart contract on NEAR can access off-chain data using an incentivized oracle solution using fungible tokens as payments.
+This repository serves to demonstrate how a smart contract on NEAR can access off-chain data using an incentivized oracle solution with fungible tokens as payments. This repository is in continual development and tracking issues [here](https://github.com/smartcontractkit/near-protocol-contracts/issues).
 
-The components of this oracle system are:
+There are a number of subdirectories in the project that represent the moving pieces of a simple oracle system. 
 
-- Oracle client (Alice's contract that wants a token price from an off-chain API)
-- Oracle contract (Bob's contract that accepts a fungible token payment and stores a request to be processed off-chain)
-- Oracle node (Bob's off-chain machine polling the oracle contract on NEAR, and fulfilling requests. **Note**: code for the oracle node is not included in this repository, but one can use an oracle protocol like Chainlink.)
-- Fungible token (The token paid by Alice to Bob in exchange for getting an answer to her request)
+- Client Contract (The contract that wants a token price from an off-chain API)
+- Oracle Contract (An on-chain smart contract that accepts a fungible token payment and stores a request to be processed off-chain)
+- Oracle Node (An off-chain machine continuously polling the Oracle Contract on NEAR, and fulfilling requests) 
+    - **Note**: code for the Oracle Node is not included in this repository, but one can use an oracle protocol like Chainlink
+- Fungible Token (The token paid by the Client Contract to the Oracle Contract in exchange for getting an answer to the Client's request)
 
-![Chainlink and NEAR diagram](assets/near-chainlink-diagram-v1.png)
+![Chainlink and NEAR diagram](assets/chainlink-diagram.png)
 
-## Get near-shell, Rust, and set up testnet accounts
+## Get NEAR-CLI, Rust, and set up testnet accounts
 
-We'll be using [NEAR Shell](https://docs.near.org/docs/development/near-shell), the NEAR CLI tool that makes things simpler. Please have [NodeJS version 12 or greater](https://nodejs.org/en/download/package-manager/). Then install globally with:
+We'll be using [NEAR CLI](https://docs.near.org/docs/development/near-cli), a command line tool that makes things simpler. Please have [NodeJS version 12 or greater](https://nodejs.org/en/download/package-manager/). Then install globally with:
 
 ```bash
-npm install -g near-shell
+npm install -g near-cli
 ```
 
 These smart contracts are written in Rust. Please follow these directions to get Rust going on your local machine.
@@ -47,7 +48,7 @@ Rust is now ready on your machine.
 
 Next, create a NEAR testnet account with [Wallet](https://wallet.testnet.near.org).
 
-Set an environment variable to use in these examples. For instance, if your test account is `oracle.testnet` set it like so:
+Set an environment variable to use in these examples. For instance, if your test account is `oracle.testnet` set it like so in your terminal:
 
 ```bash
 export NEAR_ACCT=oracle.testnet
@@ -55,7 +56,7 @@ export NEAR_ACCT=oracle.testnet
 
 (**Windows users**: please look into using `set` instead of `export`, surrounding the environment variable in `%` instead of beginning with `$`, and using escaped double-quotes `\"` where necessary instead of the single-quotes provided in these instructions.)
 
-Create subaccounts::
+Create sub-accounts::
 
 ```bash
 near create-account oracle.$NEAR_ACCT --masterAccount $NEAR_ACCT
@@ -66,11 +67,11 @@ near create-account near-link.$NEAR_ACCT --masterAccount $NEAR_ACCT
 
 We've gone over the different roles earlier, but let's focus on what will happen to get a request fulfilled.
 
-**Oracle client** will call the **oracle contract** to make a request for external data.
-**Oracle client** has given the **oracle contract** allowance to take NEAR LINK from it. Before officially adding the request, it will `transfer_from` to capture the payment, keeping track of this amount in the `withdrawable_token` state variable.
-The **oracle node** will be polling the state of its **oracle contract** using the paginated `get_requests` function.
-The **oracle node** will get the API results needed, and send back the answer to the **oracle contract**.
-The **oracle contract** makes a cross-contract call to the callback address (NEAR account) at the callback method provided. It has then fulfilled the request and removes it from state.
+**Client Contract** will call the **Oracle Contract** to make a request for external data.
+**Client Contract** gives the **Oracle Contract** an allowance to take NEAR LINK from it. Before officially adding the request, it will `transfer_from` to capture the payment, keeping track of this amount in the `withdrawable_token` state variable.
+The **Oracle Node** will be continuously polling the state of its **Oracle Contract** using the paginated `get_requests` function.
+The **Oracle Node** will get the API results needed, and send back the answer to the **Oracle Contract**.
+The **Oracle Contract** makes a cross-contract call to the callback address (NEAR account) at the callback method provided. It has now fulfilled the request and removes it from state.
 
 ## Build, deploy, and initialize
 
@@ -102,7 +103,7 @@ Oracle contract
 near deploy --accountId oracle.$NEAR_ACCT --wasmFile oracle/res/oracle.wasm --initFunction new --initArgs '{"link_id": "near-link.'$NEAR_ACCT'", "owner_id": "oracle.'$NEAR_ACCT'"}'
 ```
 
-Oracle client
+Client contract
 
 ```bash
 near deploy --accountId client.$NEAR_ACCT --wasmFile client/res/client.wasm --initFunction new --initArgs '{"oracle_account": "oracle.'$NEAR_ACCT'"}'
@@ -138,7 +139,7 @@ near call near-link.$NEAR_ACCT transfer '{"new_owner_id": "client.'$NEAR_ACCT'",
 near view near-link.$NEAR_ACCT get_balance '{"owner_id": "client.'$NEAR_ACCT'"}'
 ```
 
-**Oracle client** gives **oracle contract** allowance to spend 20 NEAR LINK on their behalf:
+**client contract** gives **oracle contract** allowance to spend 20 NEAR LINK on their behalf:
 
 ```bash
 near call near-link.$NEAR_ACCT inc_allowance '{"escrow_account_id": "oracle.'$NEAR_ACCT'", "amount": "20"}' --accountId client.$NEAR_ACCT --amount .0696
@@ -157,15 +158,15 @@ Let's make a request to a Chainlink node and request an ETH-USD price:
 - Packed JSON arguments: `{"get":"https://min-api.cryptocompare.com/data/price?fsym=ETH&tsyms=USD","path":"USD","times":100}`
 - Base64 encoded arguments: `eyJnZXQiOiJodHRwczovL21pbi1hcGkuY3J5cHRvY29tcGFyZS5jb20vZGF0YS9wcmljZT9mc3ltPUVUSCZ0c3ltcz1VU0QiLCJwYXRoIjoiVVNEIiwidGltZXMiOjEwMH0=`
 
-We'll show two ways to have the client contract send the oracle contract a request. First, we'll directly call the oracle contract using the key pair from the client contract.
+We'll show two ways to have the client contract send the oracle contract a request. First, we'll directly call the oracle contract using the key pair (i.e. keys) from the client contract.
 
-1. **Oracle client** makes a direct request to **oracle contract** with payment of 10 NEAR LINK. We can do this because we have the key pair for the client contract.
+1. **Client contract** makes a direct request to **oracle contract** with payment of 10 NEAR LINK. We can do this because we have the key pair for the client contract.
 
 ```bash
 near call oracle.$NEAR_ACCT request '{"payment": "10", "spec_id": "dW5pcXVlIHNwZWMgaWQ=", "callback_address": "client.'$NEAR_ACCT'", "callback_method": "token_price_callback", "nonce": "1", "data_version": "1", "data": "eyJnZXQiOiJodHRwczovL21pbi1hcGkuY3J5cHRvY29tcGFyZS5jb20vZGF0YS9wcmljZT9mc3ltPUVUSCZ0c3ltcz1VU0QiLCJwYXRoIjoiVVNEIiwidGltZXMiOjEwMH0="}' --accountId client.$NEAR_ACCT --gas 300000000000000
 ```
 
-2. **Any NEAR account** calls the **oracle client** contract, providing request arguments. Upon receiving this, the **oracle client** sends a cross-contract call to the **oracle contract** to store the request. (Payment and other values are hardcoded here, the nonce is automatically incremented. This assumes that the **oracle client** contract only wants to use one oracle contract.)
+2. **Any NEAR account** calls the **client contract**, providing request arguments. Upon receiving this, the **client contract** sends a cross-contract call to the **oracle contract** to store the request. (Payment and other values are hardcoded here, the nonce is automatically incremented. This assumes that the **client contract** contract only wants to use one oracle contract.)
 
 ```bash
 near call client.$NEAR_ACCT get_token_price '{"symbol": "eyJnZXQiOiJodHRwczovL21pbi1hcGkuY3J5cHRvY29tcGFyZS5jb20vZGF0YS9wcmljZT9mc3ltPUVUSCZ0c3ltcz1VU0QiLCJwYXRoIjoiVVNEIiwidGltZXMiOjEwMH0=", "spec_id": "dW5pcXVlIHNwZWMgaWQ="}' --accountId client.$NEAR_ACCT --gas 300000000000000
@@ -173,7 +174,7 @@ near call client.$NEAR_ACCT get_token_price '{"symbol": "eyJnZXQiOiJodHRwczovL21
 
 ## View pending requests
 
-Oracle node is polling the state of **oracle contract** to see paginated request _summary_, which shows which accounts have requests pending and how many total are pending:
+The oracle node is continually polling the state of the **oracle contract** to see the paginated request _summary_. This shows which accounts have requests pending and the total amount of pending requests:
 
 ```bash
 near view oracle.$NEAR_ACCT get_requests_summary '{"max_num_accounts": "10"}'
@@ -296,13 +297,13 @@ near view oracle.$NEAR_ACCT get_all_requests '{"max_num_accounts": "100", "max_r
 
 ## Fulfill the request
 
-**Oracle node** uses its NEAR account keys to fulfill the request:
+**Oracle Node** uses its NEAR account keys to fulfill the request:
 
 ```bash
 near call oracle.$NEAR_ACCT fulfill_request '{"account": "client.'$NEAR_ACCT'", "nonce": "0", "data": "MTkuMQ=="}' --accountId oracle-node.$NEAR_ACCT --gas 300000000000000
 ```
 
-(Optional) Check the **oracle client** for the values it has saved:
+(Optional) Check the **client contract** for the values it has saved:
 
 ```bash
 near view client.$NEAR_ACCT get_received_vals '{"max": "100"}'
@@ -310,7 +311,7 @@ near view client.$NEAR_ACCT get_received_vals '{"max": "100"}'
 
 ## Check final balance/allowance
 
-(Optional) Check the balance of **oracle client**:
+(Optional) Check the balance of **client contract**:
 
 ```bash
 near view near-link.$NEAR_ACCT get_balance '{"owner_id": "client.'$NEAR_ACCT'"}'
