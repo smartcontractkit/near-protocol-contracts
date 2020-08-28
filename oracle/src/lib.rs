@@ -10,12 +10,12 @@ use std::collections::HashMap;
 #[global_allocator]
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
-const EXPIRY_TIME: u64 = 5 * 60 * 1000_000_000;
+const EXPIRY_TIME: u64 = 5 * 60 * 1_000_000_000;
 
 // max gas: 300_000_000_000_000
 
-const MINIMUM_CONSUMER_GAS_LIMIT: u64 = 1000_000_000;
-const SINGLE_CALL_GAS: u64 = 90_000_000_000_000; // 2 x 10^13
+const MINIMUM_CONSUMER_GAS_LIMIT: u64 = 1_000_000_000;
+const SINGLE_CALL_GAS: u64 = 50_000_000_000_000; // 5 x 10^13
 const TRANSFER_FROM_NEAR_COST: u128 = 36_500_000_000_000_000_000_000; // 365 x 10^20
 
 pub type Base64String = String;
@@ -99,7 +99,12 @@ impl Oracle {
             let last_nonce_u128: u128 = last_nonce_option.unwrap().into();
             assert!(last_nonce_u128 < nonce_u128, format!("Invalid, already used nonce: {:?}", nonce_u128));
         }
-
+        let has_nonce_option = self.nonces.get(&env::predecessor_account_id());
+        let transfer_cost = if has_nonce_option.is_some() {
+            0u128
+        } else {
+            TRANSFER_FROM_NEAR_COST
+        };
         // first transfer token
         let promise_transfer_tokens = env::promise_create(
             self.link_account.clone(),
@@ -109,7 +114,7 @@ impl Oracle {
                 "new_owner_id": env::current_account_id(),
                 "amount": payment,
             }).to_string().as_bytes(),
-            TRANSFER_FROM_NEAR_COST,
+            transfer_cost,
             SINGLE_CALL_GAS,
         );
 
@@ -129,7 +134,7 @@ impl Oracle {
                 "data": data
             }).to_string().as_bytes(),
             0,
-            env::prepaid_gas() - SINGLE_CALL_GAS - env::used_gas()
+            SINGLE_CALL_GAS
         );
 
         env::promise_return(promise_call_self_request);
@@ -152,14 +157,9 @@ impl Oracle {
             };
         }
 
-        let used_gas = env::used_gas();
-        env::log(format!("Used gas in store_request: {:?}", used_gas).as_bytes());
-
         // cast arguments in order to be formatted
         let payment_u128: u128 = payment.into();
         let nonce_u128: u128 = nonce.into();
-
-        env::log(format!("EXPIRY_TIME: {}", EXPIRY_TIME).as_bytes());
         let expiration: u64 = env::block_timestamp() + EXPIRY_TIME;
 
         // store request
