@@ -62,7 +62,7 @@ Create sub-accounts::
 near create-account oracle.$NEAR_ACCT --masterAccount $NEAR_ACCT
 near create-account client.$NEAR_ACCT --masterAccount $NEAR_ACCT
 near create-account oracle-node.$NEAR_ACCT --masterAccount $NEAR_ACCT
-near create-account near-link.$NEAR_ACCT --masterAccount $NEAR_ACCT
+near create-account link.$NEAR_ACCT --masterAccount $NEAR_ACCT
 ```
 
 We've gone over the different roles earlier, but let's focus on what will happen to get a request fulfilled.
@@ -94,13 +94,13 @@ Then deploy and instantiate like so…
 NEAR LINK
 
 ```bash
-near deploy --accountId near-link.$NEAR_ACCT --wasmFile near-link-token/res/near_link_token.wasm --initFunction new --initArgs '{"owner_id": "near-link.'$NEAR_ACCT'", "total_supply": "1000000"}'
+near deploy --accountId link.$NEAR_ACCT --wasmFile near-link-token/res/near_link_token.wasm --initFunction new --initArgs '{"owner_id": "link.'$NEAR_ACCT'", "total_supply": "1000000"}'
 ```
 
 Oracle contract
 
 ```bash
-near deploy --accountId oracle.$NEAR_ACCT --wasmFile oracle/res/oracle.wasm --initFunction new --initArgs '{"link_id": "near-link.'$NEAR_ACCT'", "owner_id": "oracle.'$NEAR_ACCT'"}'
+near deploy --accountId oracle.$NEAR_ACCT --wasmFile oracle/res/oracle.wasm --initFunction new --initArgs '{"link_id": "link.'$NEAR_ACCT'", "owner_id": "oracle.'$NEAR_ACCT'"}'
 ```
 
 Client contract
@@ -128,7 +128,7 @@ near view oracle.$NEAR_ACCT is_authorized '{"node": "oracle-node.'$NEAR_ACCT'"}'
 Give 50 NEAR LINK to client:
 
 ```bash
-near call near-link.$NEAR_ACCT transfer '{"new_owner_id": "client.'$NEAR_ACCT'", "amount": "50"}' --accountId near-link.$NEAR_ACCT --amount .0365
+near call link.$NEAR_ACCT transfer '{"new_owner_id": "client.'$NEAR_ACCT'", "amount": "50"}' --accountId link.$NEAR_ACCT --amount .0365
 ```
 
 **Note**: above, we use the `amount` flag in order to pay for the state required. (See more about [state staking here](https://docs.near.org/docs/concepts/storage))
@@ -136,19 +136,19 @@ near call near-link.$NEAR_ACCT transfer '{"new_owner_id": "client.'$NEAR_ACCT'",
 (Optional) Check balance to confirm:
 
 ```bash
-near view near-link.$NEAR_ACCT get_balance '{"owner_id": "client.'$NEAR_ACCT'"}'
+near view link.$NEAR_ACCT get_balance '{"owner_id": "client.'$NEAR_ACCT'"}'
 ```
 
 **client contract** gives **oracle contract** allowance to spend 20 NEAR LINK on their behalf:
 
 ```bash
-near call near-link.$NEAR_ACCT inc_allowance '{"escrow_account_id": "oracle.'$NEAR_ACCT'", "amount": "20"}' --accountId client.$NEAR_ACCT --amount .0696
+near call link.$NEAR_ACCT inc_allowance '{"escrow_account_id": "oracle.'$NEAR_ACCT'", "amount": "20"}' --accountId client.$NEAR_ACCT --amount .0696
 ```
 
 (Optional) Check allowance to confirm:
 
 ```bash
-near view near-link.$NEAR_ACCT get_allowance '{"owner_id": "client.'$NEAR_ACCT'", "escrow_account_id": "oracle.'$NEAR_ACCT'"}'
+near view link.$NEAR_ACCT get_allowance '{"owner_id": "client.'$NEAR_ACCT'", "escrow_account_id": "oracle.'$NEAR_ACCT'"}'
 ```
 
 ## Make a request
@@ -314,7 +314,7 @@ near view client.$NEAR_ACCT get_received_vals '{"max": "100"}'
 (Optional) Check the balance of **client contract**:
 
 ```bash
-near view near-link.$NEAR_ACCT get_balance '{"owner_id": "client.'$NEAR_ACCT'"}'
+near view link.$NEAR_ACCT get_balance '{"owner_id": "client.'$NEAR_ACCT'"}'
 ```
 
 Expect `40`
@@ -322,7 +322,7 @@ Expect `40`
 (Optional) Check the allowance of **oracle contract**:
 
 ```bash
-near view near-link.$NEAR_ACCT get_allowance '{"owner_id": "client.'$NEAR_ACCT'", "escrow_account_id": "oracle.'$NEAR_ACCT'"}'
+near view link.$NEAR_ACCT get_allowance '{"owner_id": "client.'$NEAR_ACCT'", "escrow_account_id": "oracle.'$NEAR_ACCT'"}'
 ```
 
 Expect `10`
@@ -342,8 +342,8 @@ near view oracle.$NEAR_ACCT get_withdrawable_tokens
 (Optional) Check the fungible token balance of the client and the base account we'll be extracting to it. (This is the original account we set the `NEAR_ACCT` environment variable to, for demonstration purposes)
 
 ```bash
-near view near-link.$NEAR_ACCT get_balance '{"owner_id": "oracle.'$NEAR_ACCT'"}'
-near view near-link.$NEAR_ACCT get_balance '{"owner_id": "'$NEAR_ACCT'"}'
+near view link.$NEAR_ACCT get_balance '{"owner_id": "oracle.'$NEAR_ACCT'"}'
+near view link.$NEAR_ACCT get_balance '{"owner_id": "'$NEAR_ACCT'"}'
 ```
 
 Finally, withdraw the fungible tokens from the oracle contract into the oracle node, the base account, who presumably owns both the oracle node and oracle contract.
